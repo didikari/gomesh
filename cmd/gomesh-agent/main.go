@@ -6,16 +6,20 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"gomesh/internal/agent"
+	"gomesh/internal/agent/embeddedcfg"
 )
 
 func main() {
-	serverURL := flag.String("server", "ws://localhost:8080/ws/agent", "GoMesh Central Server WebSocket URL")
+	serverURL := flag.String("server", "", "GoMesh Central Server WebSocket URL")
+	endpointsFlag := flag.String("endpoints", "", "Comma-separated list of GoMesh server endpoints (Priority ordered, e.g. LAN then Public)")
 	token := flag.String("token", "", "GoMesh Enrollment Token")
 	group := flag.String("group", "", "Target Device Group Name (e.g. Group A, Office, Lab)")
 	configDir := flag.String("config", ".", "Path to store agent persistent identity")
+	foreground := flag.Bool("foreground", false, "Run in foreground/console mode (disable self-installation and console hiding)")
 	flag.Parse()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -23,19 +27,84 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	client, err := agent.NewClient(*serverURL, *configDir)
+	// 1. Read baked-in configuration from executable overlay if present
+	embedded := embeddedcfg.ReadFromCurrentExecutable()
+
+	resolvedServer := *serverURL
+	resolvedToken := *token
+	resolvedGroup := *group
+
+	if resolvedServer == "" && embedded != nil && embedded.Server != "" {
+		resolvedServer = embedded.Server
+		slog.Info("loaded embedded server configuration", "server", resolvedServer)
+	}
+	if resolvedToken == "" && embedded != nil && embedded.Token != "" {
+		resolvedToken = embedded.Token
+		slog.Info("loaded embedded enrollment token")
+	}
+	if resolvedGroup == "" && embedded != nil && embedded.Group != "" {
+		resolvedGroup = embedded.Group
+		slog.Info("loaded embedded target group", "group", resolvedGroup)
+	}
+
+	// 2. Resolve Server Endpoints for Smart Roaming
+	var resolvedEndpoints []string
+	if *endpointsFlag != "" {
+		for _, ep := range strings.Split(*endpointsFlag, ",") {
+			if trimmed := strings.TrimSpace(ep); trimmed != "" {
+				resolvedEndpoints = append(resolvedEndpoints, trimmed)
+			}
+		}
+	} else if embedded != nil && len(embedded.GetEndpoints()) > 0 {
+		resolvedEndpoints = embedded.GetEndpoints()
+	}
+
+	if len(resolvedEndpoints) > 0 && resolvedServer == "" {
+		resolvedServer = resolvedEndpoints[0]
+	}
+
+	// Default fallback if neither flag nor embedded config was supplied
+	if resolvedServer == "" {
+		resolvedServer = "ws://localhost:8080/ws/agent"
+	}
+	if len(resolvedEndpoints) == 0 {
+		resolvedEndpoints = []string{resolvedServer}
+	}
+
+	client, err := agent.NewClient(resolvedServer, *configDir)
 	if err != nil {
 		slog.Error("failed to create agent client", "error", err)
 		os.Exit(1)
 	}
 
-	if *token != "" {
-		client.SetAuthToken(*token)
+	client.SetEndpoints(resolvedEndpoints)
+	slog.Info("configured server endpoints for smart roaming", "endpoints", resolvedEndpoints)
+
+	if resolvedToken != "" {
+		client.SetAuthToken(resolvedToken)
 	}
-	if *group != "" {
-		client.SetGroupName(*group)
+	if resolvedGroup != "" {
+		client.SetGroupName(resolvedGroup)
 	}
 
+	// 1. If running as a registered Windows Service, delegate execution to Service Control Manager
+	handled, svcErr := runAsWindowsService("GoMeshAgent", client.Run)
+	if handled {
+		if svcErr != nil {
+			slog.Error("windows service terminated with error", "error", svcErr)
+			os.Exit(1)
+		}
+		slog.Info("GoMesh Agent Windows Service stopped cleanly")
+		return
+	}
+
+	// 2. If launched via double-click on Windows (without explicit CLI flags), perform zero-click auto-installation to background
+	isCLI := *foreground || *serverURL != "" || *token != ""
+	if checkAndSelfInstall(false, isCLI) {
+		return
+	}
+
+	// 3. Interactive / Standalone execution
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
