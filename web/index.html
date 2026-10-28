@@ -60,6 +60,30 @@
         </button>
       </form>
 
+      <!-- 2FA Verification Form Step -->
+      <form id="login-2fa-form" onsubmit="handleLogin2FA(event)" class="space-y-4 hidden">
+        <div class="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-center">
+          <div class="w-10 h-10 rounded-full bg-amber-500/20 text-amber-400 mx-auto flex items-center justify-center mb-2">
+            <i data-lucide="shield-alert" class="w-5 h-5"></i>
+          </div>
+          <h3 class="text-sm font-bold text-white">Verifikasi Dua Langkah (2FA)</h3>
+          <p class="text-[11px] text-slate-400 mt-1">Masukkan 6 digit kode autentikasi dari Google Authenticator atau aplikasi TOTP Anda.</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1 text-center">Kode Verifikasi 6 Digit</label>
+          <input type="text" id="login-2fa-code" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="000000" autocomplete="one-time-code" class="w-full text-center tracking-[0.4em] text-2xl font-bold font-mono py-2.5 px-4 rounded-lg bg-slate-950 border border-slate-800 text-amber-400 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all placeholder:text-slate-700" />
+        </div>
+
+        <button type="submit" id="login-2fa-submit-btn" class="w-full py-2.5 px-4 rounded-lg bg-amber-600 hover:bg-amber-500 font-semibold text-sm text-white shadow-lg shadow-amber-600/30 transition-all flex items-center justify-center gap-2">
+          <span>Verifikasi & Masuk</span>
+        </button>
+
+        <button type="button" onclick="cancel2FALogin()" class="w-full py-2 text-xs font-semibold text-slate-400 hover:text-white transition-colors text-center block">
+          ← Kembali ke Login
+        </button>
+      </form>
+
       <div class="mt-6 pt-4 border-t border-slate-800/80 text-center">
         <p class="text-[11px] text-slate-500 font-mono">Kredensial bawaan: <span class="text-slate-400 font-semibold">admin</span> / <span class="text-slate-400 font-semibold">admin123</span></p>
       </div>
@@ -106,6 +130,9 @@
               <span id="nav-username" class="text-xs font-semibold text-white block">admin</span>
               <span id="nav-role" class="text-[10px] text-slate-400 font-mono uppercase block">Admin</span>
             </div>
+            <button onclick="open2FAModal()" class="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors" title="Keamanan 2FA (TOTP)">
+              <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            </button>
             <button onclick="handleLogout()" class="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors" title="Logout">
               <i data-lucide="log-out" class="w-4 h-4"></i>
             </button>
@@ -590,6 +617,150 @@
     </div>
   </div>
 
+  <!-- 2FA SECURITY SETTINGS MODAL -->
+  <div id="modal-2fa" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Keamanan Autentikasi 2FA</h3>
+            <p class="text-xs text-slate-400">Two-Factor Authentication (RFC 6238 TOTP)</p>
+          </div>
+        </div>
+        <button onclick="close2FAModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 space-y-4">
+        <!-- Status Banner -->
+        <div id="2fa-status-banner" class="p-3 rounded-xl border border-slate-800 bg-slate-950/50 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div id="2fa-status-icon" class="w-2.5 h-2.5 rounded-full bg-slate-500"></div>
+            <span id="2fa-status-text" class="text-xs font-semibold text-slate-300">Memuat status 2FA...</span>
+          </div>
+          <span id="2fa-status-badge" class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">CHECKING</span>
+        </div>
+
+        <!-- 2FA Setup Section (shown when 2FA is disabled) -->
+        <div id="2fa-setup-section" class="hidden space-y-4">
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Pindai QR Code menggunakan <strong>Google Authenticator</strong>, <strong>Authy</strong>, atau masukkan Secret Key secara manual:
+          </p>
+          
+          <div class="flex justify-center p-3 bg-white rounded-xl shadow-inner w-fit mx-auto border border-slate-300">
+            <img id="2fa-qr-img" src="" alt="2FA QR Code" class="w-44 h-44 object-contain" />
+          </div>
+
+          <div class="space-y-1">
+            <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">Manual Secret Key:</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="2fa-secret-text" readonly class="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-amber-300 focus:outline-none select-all" />
+              <button type="button" onclick="copy2FASecret()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg border border-slate-700 font-medium transition-colors flex items-center gap-1.5 shrink-0">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin
+              </button>
+            </div>
+          </div>
+
+          <form onsubmit="handleEnable2FA(event)" class="space-y-3 pt-3 border-t border-slate-800">
+            <label class="block text-xs font-semibold text-slate-300">Masukkan 6 Digit Kode dari Authenticator:</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="2fa-confirm-code" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" required class="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-center tracking-[0.3em] font-mono font-bold text-lg text-amber-400 focus:outline-none focus:border-amber-500" />
+              <button type="submit" id="2fa-enable-btn" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-amber-600/30 transition-colors whitespace-nowrap">
+                Aktifkan 2FA
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 2FA Disable Section (shown when 2FA is enabled) -->
+        <div id="2fa-disable-section" class="hidden space-y-4">
+          <div class="p-3.5 bg-emerald-950/20 rounded-xl border border-emerald-500/20 text-xs space-y-1.5">
+            <div class="flex items-center gap-2 text-emerald-400 font-semibold">
+              <i data-lucide="shield-check" class="w-4 h-4"></i> Two-Factor Authentication Sedang Aktif
+            </div>
+            <p class="text-slate-400 text-[11px] leading-relaxed">
+              Akun Anda terlindungi dengan 2FA. Setiap kali login, kode dinamis dari Google Authenticator / Authy wajib dimasukkan.
+            </p>
+          </div>
+
+          <form onsubmit="handleDisable2FA(event)" class="space-y-3 pt-3 border-t border-slate-800">
+            <label class="block text-xs font-semibold text-rose-300">Konfirmasi Kata Sandi untuk Menonaktifkan:</label>
+            <div class="flex items-center gap-2">
+              <input type="password" id="2fa-disable-password" placeholder="Password akun saat ini" required class="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-white focus:outline-none focus:border-rose-500" />
+              <button type="submit" id="2fa-disable-btn" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-rose-600/30 transition-colors whitespace-nowrap">
+                Nonaktifkan 2FA
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM CONFIRM MODAL (Modern Replacement for window.confirm) -->
+  <div id="custom-confirm-modal" class="fixed inset-0 z-[9990] bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="p-6 space-y-4">
+        <div class="flex items-start gap-3.5">
+          <div id="confirm-modal-icon-container" class="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
+            <i id="confirm-modal-icon" data-lucide="alert-triangle" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1">
+            <h3 id="confirm-modal-title" class="text-base font-bold text-white">Konfirmasi Tindakan</h3>
+            <p id="confirm-modal-message" class="text-xs text-slate-400 mt-1.5 leading-relaxed">Apakah Anda yakin?</p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800/80">
+          <button id="confirm-modal-cancel-btn" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition-colors">
+            Batal
+          </button>
+          <button id="confirm-modal-confirm-btn" type="button" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white shadow-lg shadow-rose-600/20 transition-colors">
+            Lanjutkan
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM PROMPT MODAL (Modern Replacement for window.prompt) -->
+  <div id="custom-prompt-modal" class="fixed inset-0 z-[9990] bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <form id="custom-prompt-form" onsubmit="event.preventDefault();" class="p-6 space-y-4">
+        <div class="flex items-start gap-3.5">
+          <div class="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
+            <i data-lucide="edit-3" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1">
+            <h3 id="prompt-modal-title" class="text-base font-bold text-white">Input Diperlukan</h3>
+            <p id="prompt-modal-message" class="text-xs text-slate-400 mt-1 leading-relaxed">Masukkan nilai:</p>
+          </div>
+        </div>
+
+        <div>
+          <input type="text" id="prompt-modal-input" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800/80">
+          <button id="prompt-modal-cancel-btn" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition-colors">
+            Batal
+          </button>
+          <button id="prompt-modal-submit-btn" type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors">
+            Simpan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODERN TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="fixed top-5 right-5 z-[9999] flex flex-col gap-2.5 pointer-events-none max-w-sm w-full"></div>
+
   <script>
     let currentUser = null;
     let activeToken = 'default-token';
@@ -608,6 +779,150 @@
     let desktopControlEnabled = false;
     let currentNativeWidth = 1920;
     let currentNativeHeight = 1080;
+
+    let pending2FAToken = null;
+    let currentSetupSecret = '';
+
+    // --- SLEEK TOAST NOTIFICATIONS & CUSTOM DIALOGS ---
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function showToast(message, type = 'info', duration = 3500) {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+
+      const toast = document.createElement('div');
+      toast.className = 'pointer-events-auto flex items-start gap-3 p-3.5 rounded-xl shadow-2xl backdrop-blur-md border text-xs transition-all duration-300 transform translate-y-2 opacity-0 select-none';
+
+      let borderBg = 'bg-slate-900/95 border-slate-800 text-slate-200';
+      let iconMarkup = '<i data-lucide="info" class="w-4 h-4 text-indigo-400 shrink-0 mt-0.5"></i>';
+
+      if (type === 'success') {
+        borderBg = 'bg-slate-900/95 border-emerald-500/40 text-emerald-200 shadow-emerald-500/10';
+        iconMarkup = '<i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5"></i>';
+      } else if (type === 'error') {
+        borderBg = 'bg-slate-900/95 border-rose-500/40 text-rose-200 shadow-rose-500/10';
+        iconMarkup = '<i data-lucide="alert-circle" class="w-4 h-4 text-rose-400 shrink-0 mt-0.5"></i>';
+      } else if (type === 'warning') {
+        borderBg = 'bg-slate-900/95 border-amber-500/40 text-amber-200 shadow-amber-500/10';
+        iconMarkup = '<i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>';
+      }
+
+      toast.className += ' ' + borderBg;
+      toast.innerHTML = `
+        ${iconMarkup}
+        <div class="flex-1 leading-snug font-medium">${escapeHtml(message)}</div>
+        <button type="button" class="text-slate-400 hover:text-slate-200 shrink-0 p-0.5" onclick="this.parentElement.remove()">
+          <i data-lucide="x" class="w-3.5 h-3.5"></i>
+        </button>
+      `;
+
+      container.appendChild(toast);
+      lucide.createIcons();
+
+      requestAnimationFrame(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+      });
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-x-4');
+        setTimeout(() => toast.remove(), 300);
+      }, duration);
+    }
+
+    // Modern replacement for window.confirm()
+    function showConfirmModal({ title = 'Konfirmasi', message = 'Apakah Anda yakin?', confirmText = 'Lanjutkan', cancelText = 'Batal', isDanger = false } = {}) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('custom-confirm-modal');
+        const titleEl = document.getElementById('confirm-modal-title');
+        const msgEl = document.getElementById('confirm-modal-message');
+        const confirmBtn = document.getElementById('confirm-modal-confirm-btn');
+        const cancelBtn = document.getElementById('confirm-modal-cancel-btn');
+        const iconContainer = document.getElementById('confirm-modal-icon-container');
+
+        titleEl.innerText = title;
+        msgEl.innerText = message;
+        confirmBtn.innerText = confirmText;
+        cancelBtn.innerText = cancelText;
+
+        if (isDanger) {
+          confirmBtn.className = 'px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white shadow-lg shadow-rose-600/20 transition-colors';
+          iconContainer.className = 'p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0';
+        } else {
+          confirmBtn.className = 'px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors';
+          iconContainer.className = 'p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0';
+        }
+
+        const cleanup = () => {
+          modal.classList.add('hidden');
+          confirmBtn.onclick = null;
+          cancelBtn.onclick = null;
+        };
+
+        confirmBtn.onclick = () => { cleanup(); resolve(true); };
+        cancelBtn.onclick = () => { cleanup(); resolve(false); };
+
+        modal.classList.remove('hidden');
+        confirmBtn.focus();
+        lucide.createIcons();
+      });
+    }
+
+    // Modern replacement for window.prompt()
+    function showPromptModal({ title = 'Input Diperlukan', message = 'Masukkan nilai:', placeholder = '', defaultValue = '', submitText = 'Simpan', cancelText = 'Batal' } = {}) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('custom-prompt-modal');
+        const form = document.getElementById('custom-prompt-form');
+        const titleEl = document.getElementById('prompt-modal-title');
+        const msgEl = document.getElementById('prompt-modal-message');
+        const input = document.getElementById('prompt-modal-input');
+        const submitBtn = document.getElementById('prompt-modal-submit-btn');
+        const cancelBtn = document.getElementById('prompt-modal-cancel-btn');
+
+        titleEl.innerText = title;
+        msgEl.innerText = message;
+        input.placeholder = placeholder;
+        input.value = defaultValue;
+        submitBtn.innerText = submitText;
+        cancelBtn.innerText = cancelText;
+
+        const cleanup = () => {
+          modal.classList.add('hidden');
+          form.onsubmit = null;
+          cancelBtn.onclick = null;
+        };
+
+        form.onsubmit = (e) => {
+          e.preventDefault();
+          const val = input.value;
+          cleanup();
+          resolve(val);
+        };
+
+        cancelBtn.onclick = () => {
+          cleanup();
+          resolve(null);
+        };
+
+        modal.classList.remove('hidden');
+        input.focus();
+        input.select();
+        lucide.createIcons();
+      });
+    }
+
+    // Fallback for window.alert
+    window.alert = function(msg) {
+      showToast(msg, 'info');
+    };
 
     // --- AUTHENTICATION ---
     async function checkAuth() {
@@ -653,14 +968,26 @@
         const data = await res.json();
         if (res.ok && data.success) {
           errorBanner.classList.add('hidden');
+          showToast('Login berhasil!', 'success');
           checkAuth();
+        } else if (data.requires_2fa) {
+          errorBanner.classList.add('hidden');
+          pending2FAToken = data.temp_token;
+          document.getElementById('login-form').classList.add('hidden');
+          document.getElementById('login-2fa-form').classList.remove('hidden');
+          document.getElementById('login-2fa-code').value = '';
+          document.getElementById('login-2fa-code').focus();
+          showToast('Masukkan kode autentikasi 2FA Anda', 'info');
+          lucide.createIcons();
         } else {
           errorBanner.classList.remove('hidden');
           document.getElementById('login-error-msg').innerText = data.error || 'Username atau password salah';
+          showToast(data.error || 'Login gagal', 'error');
         }
       } catch (err) {
         errorBanner.classList.remove('hidden');
         document.getElementById('login-error-msg').innerText = 'Koneksi ke server gagal';
+        showToast('Koneksi ke server gagal', 'error');
       } finally {
         submitBtn.disabled = false;
         submitBtn.innerHTML = '<span>Masuk ke Console</span>';
@@ -668,13 +995,207 @@
       }
     }
 
+    async function handleLogin2FA(e) {
+      e.preventDefault();
+      const code = document.getElementById('login-2fa-code').value.trim();
+      const errorBanner = document.getElementById('login-error');
+      const submitBtn = document.getElementById('login-2fa-submit-btn');
+
+      if (!code || code.length !== 6) {
+        showToast('Kode 2FA harus berupa 6 digit angka', 'warning');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Memvalidasi OTP...';
+      lucide.createIcons();
+
+      try {
+        const res = await fetch('/api/auth/login/2fa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ temp_token: pending2FAToken, code: code })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          errorBanner.classList.add('hidden');
+          document.getElementById('login-2fa-form').classList.add('hidden');
+          document.getElementById('login-form').classList.remove('hidden');
+          showToast('Autentikasi 2FA berhasil! Selamat datang.', 'success');
+          checkAuth();
+        } else {
+          errorBanner.classList.remove('hidden');
+          document.getElementById('login-error-msg').innerText = data.error || 'Kode 2FA salah atau kedaluwarsa';
+          showToast(data.error || 'Kode 2FA tidak valid', 'error');
+        }
+      } catch (err) {
+        errorBanner.classList.remove('hidden');
+        document.getElementById('login-error-msg').innerText = 'Gagal memverifikasi 2FA';
+        showToast('Gagal memverifikasi 2FA', 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Verifikasi & Masuk</span>';
+        lucide.createIcons();
+      }
+    }
+
+    function cancel2FALogin() {
+      document.getElementById('login-2fa-form').classList.add('hidden');
+      document.getElementById('login-form').classList.remove('hidden');
+      document.getElementById('login-error').classList.add('hidden');
+      pending2FAToken = null;
+      lucide.createIcons();
+    }
+
     async function handleLogout() {
       try {
         await fetch('/api/auth/logout', { method: 'POST' });
         currentUser = null;
+        showToast('Logout berhasil', 'info');
         window.location.reload();
       } catch (e) {
         console.error('Logout error:', e);
+      }
+    }
+
+    // --- 2FA SECURITY SETTINGS ---
+    async function open2FAModal() {
+      document.getElementById('modal-2fa').classList.remove('hidden');
+      lucide.createIcons();
+      await refresh2FAStatus();
+    }
+
+    function close2FAModal() {
+      document.getElementById('modal-2fa').classList.add('hidden');
+    }
+
+    async function refresh2FAStatus() {
+      const banner = document.getElementById('2fa-status-banner');
+      const icon = document.getElementById('2fa-status-icon');
+      const text = document.getElementById('2fa-status-text');
+      const badge = document.getElementById('2fa-status-badge');
+      const setupSec = document.getElementById('2fa-setup-section');
+      const disableSec = document.getElementById('2fa-disable-section');
+
+      try {
+        const res = await fetch('/api/auth/2fa/status');
+        const data = await res.json();
+        if (data.enabled) {
+          banner.className = 'p-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 flex items-center justify-between text-emerald-400';
+          icon.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+          text.innerText = 'Two-Factor Authentication Aktif';
+          badge.className = 'text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          badge.innerText = 'Active';
+
+          setupSec.classList.add('hidden');
+          disableSec.classList.remove('hidden');
+        } else {
+          banner.className = 'p-3 rounded-xl border border-amber-500/20 bg-amber-500/10 flex items-center justify-between text-amber-400';
+          icon.className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+          text.innerText = 'Two-Factor Authentication Belum Aktif';
+          badge.className = 'text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30';
+          badge.innerText = 'Disabled';
+
+          disableSec.classList.add('hidden');
+          setupSec.classList.remove('hidden');
+          load2FASetup();
+        }
+      } catch (err) {
+        showToast('Gagal memuat status 2FA: ' + err.message, 'error');
+      }
+    }
+
+    async function load2FASetup() {
+      try {
+        const res = await fetch('/api/auth/2fa/setup', { method: 'POST' });
+        const data = await res.json();
+        if (res.ok && data.secret) {
+          currentSetupSecret = data.secret;
+          document.getElementById('2fa-secret-text').value = data.secret;
+          document.getElementById('2fa-qr-img').src = data.qr_url;
+        }
+      } catch (err) {
+        showToast('Gagal memuat konfigurasi 2FA', 'error');
+      }
+    }
+
+    function copy2FASecret() {
+      const secret = document.getElementById('2fa-secret-text').value;
+      if (!secret) return;
+      navigator.clipboard.writeText(secret);
+      showToast('Secret key 2FA disalin ke clipboard!', 'success');
+    }
+
+    async function handleEnable2FA(e) {
+      e.preventDefault();
+      const code = document.getElementById('2fa-confirm-code').value.trim();
+      const btn = document.getElementById('2fa-enable-btn');
+      if (!code || code.length !== 6) {
+        showToast('Masukkan 6 digit kode dari authenticator', 'warning');
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerText = 'Memverifikasi...';
+
+      try {
+        const res = await fetch('/api/auth/2fa/enable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: currentSetupSecret, code: code })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('2FA berhasil diaktifkan untuk akun Anda!', 'success');
+          document.getElementById('2fa-confirm-code').value = '';
+          refresh2FAStatus();
+        } else {
+          showToast(data.error || 'Kode verifikasi 2FA tidak valid', 'error');
+        }
+      } catch (err) {
+        showToast('Gagal mengaktifkan 2FA: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Aktifkan 2FA';
+      }
+    }
+
+    async function handleDisable2FA(e) {
+      e.preventDefault();
+      const password = document.getElementById('2fa-disable-password').value;
+      const btn = document.getElementById('2fa-disable-btn');
+      if (!password) return;
+
+      const confirmed = await showConfirmModal({
+        title: 'Nonaktifkan 2FA',
+        message: 'Apakah Anda yakin ingin menonaktifkan 2FA? Akun Anda tidak lagi dilindungi verifikasi dua langkah.',
+        confirmText: 'Ya, Nonaktifkan',
+        isDanger: true
+      });
+      if (!confirmed) return;
+
+      btn.disabled = true;
+      btn.innerText = 'Memproses...';
+
+      try {
+        const res = await fetch('/api/auth/2fa/disable', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: password })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          showToast('2FA telah dinonaktifkan.', 'info');
+          document.getElementById('2fa-disable-password').value = '';
+          refresh2FAStatus();
+        } else {
+          showToast(data.error || 'Password salah', 'error');
+        }
+      } catch (err) {
+        showToast('Gagal menonaktifkan 2FA: ' + err.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Nonaktifkan 2FA';
       }
     }
 
@@ -696,7 +1217,12 @@
 
     async function generateNewToken() {
       try {
-        const desc = prompt('Masukkan deskripsi token baru (opsional):', 'Agent Node Token');
+        const desc = await showPromptModal({
+          title: 'Buat Token Pendaftaran Baru',
+          message: 'Masukkan deskripsi untuk token pendaftaran node (opsional):',
+          defaultValue: 'Agent Node Token',
+          placeholder: 'Deskripsi token...'
+        });
         if (desc === null) return;
         const res = await fetch('/api/tokens', {
           method: 'POST',
@@ -707,11 +1233,12 @@
           const tok = await res.json();
           activeToken = tok.token;
           updateInstallCommands();
+          showToast('Token pendaftaran baru berhasil dibuat!', 'success');
         } else {
-          alert('Hanya admin yang dapat membuat token pendaftaran baru.');
+          showToast('Hanya admin yang dapat membuat token pendaftaran baru.', 'error');
         }
       } catch (e) {
-        alert('Gagal membuat token: ' + e.message);
+        showToast('Gagal membuat token: ' + e.message, 'error');
       }
     }
 
@@ -772,7 +1299,7 @@
     function copyCmd(elementId) {
       const text = document.getElementById(elementId).innerText;
       navigator.clipboard.writeText(text);
-      alert('Perintah disalin ke clipboard!');
+      showToast('Perintah instalasi disalin ke clipboard!', 'success');
     }
 
     // --- AUDIT LOGS MODAL ---
@@ -848,7 +1375,12 @@
     }
 
     async function changeDeviceGroup(deviceID, currentGroup, hostname) {
-      const newGroup = prompt(`Pindahkan komputer "${hostname}" ke Group:`, currentGroup || 'Default');
+      const newGroup = await showPromptModal({
+        title: 'Pindahkan Group Perangkat',
+        message: `Pindahkan komputer "${hostname}" ke Group:`,
+        defaultValue: currentGroup || 'Default',
+        placeholder: 'Nama group...'
+      });
       if (newGroup === null) return;
       const trimmed = newGroup.trim();
       if (!trimmed) return;
@@ -860,9 +1392,10 @@
           body: JSON.stringify({ group: trimmed })
         });
         if (!res.ok) throw new Error('Gagal memperbarui group');
+        showToast(`Group untuk "${hostname}" diubah ke "${trimmed}"`, 'success');
         fetchDevices();
       } catch (e) {
-        alert(e.message);
+        showToast(e.message, 'error');
       }
     }
 
@@ -1260,7 +1793,7 @@
         setTimeout(() => { status.innerText = ''; }, 3000);
         loadDir(currentLoadedPath);
       } catch (err) {
-        alert('Gagal mengunggah file: ' + err.message);
+        showToast('Gagal mengunggah file: ' + err.message, 'error');
         status.innerText = '';
       } finally {
         event.target.value = '';
@@ -1274,7 +1807,14 @@
     }
 
     async function deleteFile(filePath) {
-      if (!confirm(`Hapus ${filePath}? Tindakan ini tidak dapat dibatalkan.`)) return;
+      const ok = await showConfirmModal({
+        title: 'Hapus File',
+        message: `Hapus "${filePath}"? Tindakan ini tidak dapat dibatalkan.`,
+        confirmText: 'Hapus',
+        isDanger: true
+      });
+      if (!ok) return;
+
       try {
         const res = await fetch(`/api/devices/${activeFileDeviceID}/files/action`, {
           method: 'POST',
@@ -1282,16 +1822,22 @@
           body: JSON.stringify({ action: 'delete', path: filePath })
         });
         if (!res.ok) throw new Error(await res.text());
+        showToast(`File "${filePath}" berhasil dihapus`, 'success');
         loadDir(currentLoadedPath);
       } catch (err) {
-        alert('Gagal menghapus: ' + err.message);
+        showToast('Gagal menghapus: ' + err.message, 'error');
       }
     }
 
     async function createNewFolder() {
-      const folderName = prompt('Nama folder baru:');
-      if (!folderName) return;
-      const fullPath = currentLoadedPath ? `${currentLoadedPath.replace(/\/+$/, '')}/${folderName}` : folderName;
+      const folderName = await showPromptModal({
+        title: 'Buat Folder Baru',
+        message: 'Masukkan nama folder baru:',
+        placeholder: 'nama-folder'
+      });
+      if (!folderName || !folderName.trim()) return;
+      const trimmed = folderName.trim();
+      const fullPath = currentLoadedPath ? `${currentLoadedPath.replace(/\/+$/, '')}/${trimmed}` : trimmed;
 
       try {
         const res = await fetch(`/api/devices/${activeFileDeviceID}/files/action`, {
@@ -1300,9 +1846,10 @@
           body: JSON.stringify({ action: 'mkdir', path: fullPath })
         });
         if (!res.ok) throw new Error(await res.text());
+        showToast(`Folder "${trimmed}" berhasil dibuat`, 'success');
         loadDir(currentLoadedPath);
       } catch (err) {
-        alert('Gagal membuat folder: ' + err.message);
+        showToast('Gagal membuat folder: ' + err.message, 'error');
       }
     }
 
@@ -1471,7 +2018,7 @@
     function toggleDesktopFullscreen() {
       const container = document.getElementById('desktop-container');
       if (!document.fullscreenElement) {
-        container.requestFullscreen().catch(err => alert(err.message));
+        container.requestFullscreen().catch(err => showToast(err.message, 'error'));
       } else {
         document.exitFullscreen();
       }
@@ -1504,16 +2051,28 @@
     // Close on Escape key
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
+        const confirmModal = document.getElementById('custom-confirm-modal');
+        if (confirmModal && !confirmModal.classList.contains('hidden')) {
+          document.getElementById('confirm-modal-cancel-btn')?.click();
+          return;
+        }
+        const promptModal = document.getElementById('custom-prompt-modal');
+        if (promptModal && !promptModal.classList.contains('hidden')) {
+          document.getElementById('prompt-modal-cancel-btn')?.click();
+          return;
+        }
+        const modal2FA = document.getElementById('modal-2fa');
+        if (modal2FA && !modal2FA.classList.contains('hidden')) close2FAModal();
         const termModal = document.getElementById('terminal-modal');
-        if (!termModal.classList.contains('hidden')) closeTerminal();
+        if (termModal && !termModal.classList.contains('hidden')) closeTerminal();
         const filesModal = document.getElementById('files-modal');
-        if (!filesModal.classList.contains('hidden')) closeFilesModal();
+        if (filesModal && !filesModal.classList.contains('hidden')) closeFilesModal();
         const deskModal = document.getElementById('desktop-modal');
-        if (!deskModal.classList.contains('hidden') && !document.fullscreenElement) closeDesktopModal();
+        if (deskModal && !deskModal.classList.contains('hidden') && !document.fullscreenElement) closeDesktopModal();
         const installModal = document.getElementById('install-modal');
-        if (!installModal.classList.contains('hidden')) closeInstallModal();
+        if (installModal && !installModal.classList.contains('hidden')) closeInstallModal();
         const auditsModal = document.getElementById('audits-modal');
-        if (!auditsModal.classList.contains('hidden')) closeAuditsModal();
+        if (auditsModal && !auditsModal.classList.contains('hidden')) closeAuditsModal();
       }
     });
 

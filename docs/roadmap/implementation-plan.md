@@ -74,6 +74,8 @@ Goal: Pengamanan sistem dan deployment readiness.
 - [x] Add Device / Deployment UI Modal dengan 1-click copy command dan download binary standalone.
 - [x] Device Grouping & Filtering: Kolom `group_name` di database, tab filter group dinamis di web dashboard, dialog pemindahan group instan, dan flag `-group` pada agen (`PASS` pada `TestDeviceGrouping`).
 - [x] Direct Web Installer Downloads: Endpoint download installer 1-klik langsung dari browser (`/api/download/installer/windows-bat`, `/api/download/installer/linux-sh`, `/api/download/installer/macos-sh`) serta download langsung binary standalone (`gomesh-agent.exe`, `gomesh-agent-linux`, `gomesh-agent`).
+- [x] Modern UI Toast & Custom Modal System: Menggantikan seluruh `window.alert()`, `window.confirm()`, dan `window.prompt()` bawaan browser dengan custom floating Toast notifications (`showToast()`), custom confirmation modal (`showConfirmModal()`), dan custom prompt modal (`showPromptModal()`) berdesain dark-mode modern Tailwind CSS.
+- [x] Two-Factor Authentication (RFC 6238 TOTP 2FA): Autentikasi 2FA murni standar Go (`crypto/hmac`, `crypto/sha1`) tanpa dependensi berat pihak ketiga. Kompatibel penuh dengan Google Authenticator, Authy, dan Microsoft Authenticator, lengkap dengan QR Code setup, input verifikasi 6 digit, pending 2FA token temporary session, serta UI aktivasi/deaktivasi di Web Console (`PASS` pada `TestTwoFactorAuthenticationFlow`).
 Success criteria:
 - [x] Multi-user RBAC aktif (`PASS` pada `TestSessionManagerLifecycle` & `TestAuthMiddleware`).
 - [x] Pendaftaran agen dan validasi enrollment token terverifikasi (`PASS` pada `TestAuthAndTokenEnrollment`).

@@ -62,6 +62,41 @@ func main() {
 	h := hub.New(st)
 	defer h.Stop()
 
+	mux := buildServerMux(st, sm, h)
+
+	server := &http.Server{
+		Addr:         fmt.Sprintf(":%d", *port),
+		Handler:      mux,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 15 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
+	// Start server in goroutine
+	go func() {
+		slog.Info(fmt.Sprintf("GoMesh Web Console ready at http://localhost:%d", *port))
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("server listener error", "error", err)
+		}
+	}()
+
+	// Wait for termination signal
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	<-stop
+
+	slog.Info("shutting down GoMesh Central Server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		slog.Error("server shutdown forced", "error", err)
+	}
+
+	slog.Info("GoMesh Central Server stopped cleanly")
+}
+
+func buildServerMux(st *store.Store, sm *auth.SessionManager, h *hub.Hub) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	// Web console UI
@@ -234,6 +269,19 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 			return
 		}
 
+		// If 2FA is active, prompt for 6-digit TOTP code
+		if user.TOTPEnabled {
+			tempToken := sm.CreatePending2FA(user)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"success":      false,
+				"requires_2fa": true,
+				"temp_token":   tempToken,
+				"message":      "Masukkan 6-digit kode OTP dari aplikasi Authenticator",
+			})
+			return
+		}
+
 		sess := sm.Create(user)
 		auth.SetCookie(w, sess.ID, 24*time.Hour)
 
@@ -242,9 +290,55 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 			"success": true,
 			"token":   sess.ID,
 			"user": map[string]interface{}{
-				"id":       user.ID,
-				"username": user.Username,
-				"role":     user.Role,
+				"id":           user.ID,
+				"username":     user.Username,
+				"role":         user.Role,
+				"totp_enabled": user.TOTPEnabled,
+			},
+		})
+	})
+
+	// POST /api/auth/login/2fa: Verifies 6-digit TOTP code to complete authentication
+	mux.HandleFunc("POST /api/auth/login/2fa", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			TempToken string `json:"temp_token"`
+			Code      string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+			return
+		}
+
+		user, ok := sm.GetPending2FA(req.TempToken)
+		if !ok || user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Sesi 2FA telah kadaluwarsa atau tidak valid. Silakan login kembali."})
+			return
+		}
+
+		if !auth.ValidateTOTP(user.TOTPSecret, req.Code) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Kode 2FA tidak valid atau salah. Silakan coba lagi."})
+			return
+		}
+
+		// Consume the pending token on success
+		sm.ConsumePending2FA(req.TempToken)
+
+		sess := sm.Create(user)
+		auth.SetCookie(w, sess.ID, 24*time.Hour)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"token":   sess.ID,
+			"user": map[string]interface{}{
+				"id":           user.ID,
+				"username":     user.Username,
+				"role":         user.Role,
+				"totp_enabled": user.TOTPEnabled,
 			},
 		})
 	})
@@ -267,15 +361,119 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 			json.NewEncoder(w).Encode(map[string]interface{}{"authenticated": false})
 			return
 		}
+		user, _ := st.GetUserByID(r.Context(), sess.UserID)
+		totpEnabled := false
+		if user != nil {
+			totpEnabled = user.TOTPEnabled
+		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"authenticated": true,
 			"user": map[string]interface{}{
-				"id":       sess.UserID,
-				"username": sess.Username,
-				"role":     sess.Role,
+				"id":           sess.UserID,
+				"username":     sess.Username,
+				"role":         sess.Role,
+				"totp_enabled": totpEnabled,
 			},
 		})
 	})
+
+	// --- 2FA MANAGEMENT REST ENDPOINTS (PROTECTED) ---
+
+	// GET /api/auth/2fa/status
+	mux.HandleFunc("GET /api/auth/2fa/status", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		user, err := st.GetUserByID(r.Context(), sess.UserID)
+		if err != nil || user == nil {
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled": user.TOTPEnabled,
+		})
+	}))
+
+	// POST /api/auth/2fa/setup: Generates new TOTP secret & otpauth URL
+	mux.HandleFunc("POST /api/auth/2fa/setup", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		secret, err := auth.GenerateTOTPSecret()
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		otpURL := auth.GenerateOTPAuthURL("GoMesh", sess.Username, secret)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"secret":      secret,
+			"otpauth_url": otpURL,
+		})
+	}))
+
+	// POST /api/auth/2fa/enable: Verifies code and activates 2FA
+	mux.HandleFunc("POST /api/auth/2fa/enable", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		var req struct {
+			Secret string `json:"secret"`
+			Code   string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		if !auth.ValidateTOTP(req.Secret, req.Code) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Kode verifikasi 2FA tidak valid atau salah."})
+			return
+		}
+
+		if err := st.UpdateUserTOTP(r.Context(), sess.UserID, req.Secret, true); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}))
+
+	// POST /api/auth/2fa/disable: Turns off 2FA
+	mux.HandleFunc("POST /api/auth/2fa/disable", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		var req struct {
+			Password string `json:"password"`
+			Code     string `json:"code"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+
+		user, err := st.AuthenticateUser(r.Context(), sess.Username, req.Password)
+		if err != nil || user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Password konfirmasi salah."})
+			return
+		}
+
+		if user.TOTPEnabled && req.Code != "" {
+			if !auth.ValidateTOTP(user.TOTPSecret, req.Code) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]interface{}{"error": "Kode 2FA salah."})
+				return
+			}
+		}
+
+		if err := st.UpdateUserTOTP(r.Context(), sess.UserID, "", false); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}))
 
 	// --- PROTECTED DEVICE & TELEMETRY ENDPOINTS ---
 
@@ -515,36 +713,7 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 		json.NewEncoder(w).Encode(audits)
 	}))
 
-	server := &http.Server{
-		Addr:         fmt.Sprintf(":%d", *port),
-		Handler:      mux,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
-	}
-
-	// Start server in goroutine
-	go func() {
-		slog.Info(fmt.Sprintf("GoMesh Web Console ready at http://localhost:%d", *port))
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			slog.Error("server listener error", "error", err)
-		}
-	}()
-
-	// Wait for termination signal
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop
-
-	slog.Info("shutting down GoMesh Central Server...")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
-		slog.Error("server shutdown forced", "error", err)
-	}
-
-	slog.Info("GoMesh Central Server stopped cleanly")
+	return mux
 }
 
 // findBinaryPath locates an agent binary regardless of whether gomesh is run from repo root or inside bin/

@@ -37,6 +37,8 @@ type User struct {
 	Username     string    `json:"username"`
 	PasswordHash string    `json:"-"`
 	Role         string    `json:"role"` // "admin" or "operator"
+	TOTPSecret   string    `json:"-"`
+	TOTPEnabled  bool      `json:"totp_enabled"`
 	CreatedAt    time.Time `json:"created_at"`
 }
 
@@ -124,6 +126,8 @@ func (s *Store) migrate() error {
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL DEFAULT 'operator',
+		totp_secret TEXT NOT NULL DEFAULT '',
+		totp_enabled INTEGER NOT NULL DEFAULT 0,
 		created_at DATETIME NOT NULL
 	);
 
@@ -184,6 +188,32 @@ func (s *Store) migrate() error {
 	_, err = s.db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_name);")
 	if err != nil {
 		return fmt.Errorf("failed creating group index: %w", err)
+	}
+
+	// For databases created prior to 2FA: ensure totp_secret and totp_enabled columns exist
+	var totpSecretFound, totpEnabledFound bool
+	userRows, err := s.db.Query("PRAGMA table_info(users);")
+	if err == nil {
+		for userRows.Next() {
+			var cid, notnull, pk int
+			var name, ctype string
+			var dfltValue interface{}
+			if err := userRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "totp_secret" {
+					totpSecretFound = true
+				}
+				if name == "totp_enabled" {
+					totpEnabledFound = true
+				}
+			}
+		}
+		userRows.Close()
+	}
+	if !totpSecretFound {
+		_, _ = s.db.Exec("ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT '';")
+	}
+	if !totpEnabledFound {
+		_, _ = s.db.Exec("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0;")
 	}
 
 	return nil
@@ -397,16 +427,62 @@ func (s *Store) EnsureDefaultAdmin(ctx context.Context) (*User, bool, error) {
 
 // GetUserByUsername finds a user by username
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, error) {
-	query := `SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?;`
+	query := `
+	SELECT id, username, password_hash, role, 
+	       COALESCE(totp_secret, ''), COALESCE(totp_enabled, 0), created_at 
+	FROM users WHERE username = ?;
+	`
 	var u User
-	err := s.db.QueryRowContext(ctx, query, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	var totpEnabledInt int
+	err := s.db.QueryRowContext(ctx, query, username).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.Role,
+		&u.TOTPSecret, &totpEnabledInt, &u.CreatedAt,
+	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed fetching user: %w", err)
 	}
+	u.TOTPEnabled = totpEnabledInt == 1
 	return &u, nil
+}
+
+// GetUserByID finds a user by user ID
+func (s *Store) GetUserByID(ctx context.Context, id string) (*User, error) {
+	query := `
+	SELECT id, username, password_hash, role, 
+	       COALESCE(totp_secret, ''), COALESCE(totp_enabled, 0), created_at 
+	FROM users WHERE id = ?;
+	`
+	var u User
+	var totpEnabledInt int
+	err := s.db.QueryRowContext(ctx, query, id).Scan(
+		&u.ID, &u.Username, &u.PasswordHash, &u.Role,
+		&u.TOTPSecret, &totpEnabledInt, &u.CreatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed fetching user by id: %w", err)
+	}
+	u.TOTPEnabled = totpEnabledInt == 1
+	return &u, nil
+}
+
+// UpdateUserTOTP updates user's 2FA secret and enabled status
+func (s *Store) UpdateUserTOTP(ctx context.Context, userID, secret string, enabled bool) error {
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	query := `UPDATE users SET totp_secret = ?, totp_enabled = ? WHERE id = ?;`
+	_, err := s.db.ExecContext(ctx, query, secret, enabledInt, userID)
+	if err != nil {
+		return fmt.Errorf("failed updating user totp: %w", err)
+	}
+	return nil
 }
 
 // AuthenticateUser verifies username and password

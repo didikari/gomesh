@@ -103,7 +103,7 @@
 
 ## 5. Domain Model
 ### Main entities
-- `User`: Akun pengguna web console (ID, Username, PasswordHash, Role, CreatedAt).
+- `User`: Akun pengguna web console (ID, Username, PasswordHash, Role, TOTPSecret, TOTPEnabled, CreatedAt).
 - `Device`: Perangkat yang terdaftar (ID, HardwareUUID, Hostname, OS, Arch, InternalIP, PublicIP, Status, LastSeenAt).
 - `EnrollmentToken`: Token pendaftaran agen (ID, TokenString, CreatedBy, ExpiresAt, UsageCount).
 - `SessionAudit`: Catatan audit interaksi (ID, UserID, DeviceID, SessionType, StartedAt, EndedAt).
