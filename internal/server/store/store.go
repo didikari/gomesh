@@ -15,20 +15,21 @@ import (
 
 // Device represents a registered target machine
 type Device struct {
-	ID           string    `json:"id"`
-	HardwareUUID string    `json:"hardware_uuid"`
-	Hostname     string    `json:"hostname"`
-	OS           string    `json:"os"`
-	Arch         string    `json:"arch"`
-	InternalIP   string    `json:"internal_ip"`
-	PublicIP     string    `json:"public_ip"`
-	AgentVersion string    `json:"agent_version"`
-	Status       string    `json:"status"` // "online" or "offline"
-	GroupName    string    `json:"group_name"`
-	CPUUsage     float64   `json:"cpu_usage"`
-	RAMUsage     float64   `json:"ram_usage"`
-	LastSeenAt   time.Time `json:"last_seen_at"`
-	CreatedAt    time.Time `json:"created_at"`
+	ID             string    `json:"id"`
+	HardwareUUID   string    `json:"hardware_uuid"`
+	Hostname       string    `json:"hostname"`
+	OS             string    `json:"os"`
+	Arch           string    `json:"arch"`
+	InternalIP     string    `json:"internal_ip"`
+	PublicIP       string    `json:"public_ip"`
+	ConnectionMode string    `json:"connection_mode"` // "LAN" or "WAN"
+	AgentVersion   string    `json:"agent_version"`
+	Status         string    `json:"status"` // "online" or "offline"
+	GroupName      string    `json:"group_name"`
+	CPUUsage       float64   `json:"cpu_usage"`
+	RAMUsage       float64   `json:"ram_usage"`
+	LastSeenAt     time.Time `json:"last_seen_at"`
+	CreatedAt      time.Time `json:"created_at"`
 }
 
 // User represents a web dashboard operator or admin
@@ -109,6 +110,7 @@ func (s *Store) migrate() error {
 		arch TEXT NOT NULL,
 		internal_ip TEXT,
 		public_ip TEXT,
+		connection_mode TEXT NOT NULL DEFAULT 'LAN',
 		agent_version TEXT,
 		status TEXT NOT NULL DEFAULT 'offline',
 		group_name TEXT NOT NULL DEFAULT 'Default',
@@ -184,6 +186,26 @@ func (s *Store) migrate() error {
 		}
 	}
 
+	// For databases created prior to Hybrid Smart Roaming: ensure connection_mode column exists
+	var connModeFound bool
+	if devRows, err := s.db.Query("PRAGMA table_info(devices);"); err == nil {
+		for devRows.Next() {
+			var cid, notnull, pk int
+			var name, ctype string
+			var dfltValue interface{}
+			if err := devRows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "connection_mode" {
+					connModeFound = true
+					break
+				}
+			}
+		}
+		devRows.Close()
+	}
+	if !connModeFound {
+		_, _ = s.db.Exec("ALTER TABLE devices ADD COLUMN connection_mode TEXT NOT NULL DEFAULT 'LAN';")
+	}
+
 	// Now that group_name is guaranteed to exist on both new and existing tables, ensure index exists
 	_, err = s.db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_name);")
 	if err != nil {
@@ -229,17 +251,21 @@ func (s *Store) UpsertDevice(ctx context.Context, dev *Device) error {
 	if dev.GroupName == "" {
 		dev.GroupName = "Default"
 	}
+	if dev.ConnectionMode == "" {
+		dev.ConnectionMode = "LAN"
+	}
 
 	query := `
 	INSERT INTO devices (
-		id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, last_seen_at, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, connection_mode, agent_version, status, group_name, last_seen_at, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(hardware_uuid) DO UPDATE SET
 		hostname = excluded.hostname,
 		os = excluded.os,
 		arch = excluded.arch,
 		internal_ip = excluded.internal_ip,
 		public_ip = excluded.public_ip,
+		connection_mode = excluded.connection_mode,
 		agent_version = excluded.agent_version,
 		status = excluded.status,
 		last_seen_at = excluded.last_seen_at
@@ -249,7 +275,7 @@ func (s *Store) UpsertDevice(ctx context.Context, dev *Device) error {
 	var assignedID, assignedGroup string
 	err := s.db.QueryRowContext(ctx, query,
 		dev.ID, dev.HardwareUUID, dev.Hostname, dev.OS, dev.Arch,
-		dev.InternalIP, dev.PublicIP, dev.AgentVersion, dev.Status, dev.GroupName,
+		dev.InternalIP, dev.PublicIP, dev.ConnectionMode, dev.AgentVersion, dev.Status, dev.GroupName,
 		dev.LastSeenAt, dev.CreatedAt,
 	).Scan(&assignedID, &assignedGroup)
 
@@ -322,7 +348,7 @@ func (s *Store) ListDeviceGroups(ctx context.Context) ([]string, error) {
 func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 	query := `
 	SELECT id, hardware_uuid, hostname, os, arch, 
-	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(agent_version, ''), 
+	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(connection_mode, 'LAN'), COALESCE(agent_version, ''), 
 	       status, COALESCE(group_name, 'Default'), cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
 	ORDER BY group_name ASC, CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC;
@@ -338,7 +364,7 @@ func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 		var d Device
 		err := rows.Scan(
 			&d.ID, &d.HardwareUUID, &d.Hostname, &d.OS, &d.Arch,
-			&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status, &d.GroupName,
+			&d.InternalIP, &d.PublicIP, &d.ConnectionMode, &d.AgentVersion, &d.Status, &d.GroupName,
 			&d.CPUUsage, &d.RAMUsage, &d.LastSeenAt, &d.CreatedAt,
 		)
 		if err != nil {
@@ -354,7 +380,7 @@ func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 func (s *Store) GetDevice(ctx context.Context, id string) (*Device, error) {
 	query := `
 	SELECT id, hardware_uuid, hostname, os, arch, 
-	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(agent_version, ''), 
+	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(connection_mode, 'LAN'), COALESCE(agent_version, ''), 
 	       status, COALESCE(group_name, 'Default'), cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
 	WHERE id = ?;
@@ -362,7 +388,7 @@ func (s *Store) GetDevice(ctx context.Context, id string) (*Device, error) {
 	var d Device
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&d.ID, &d.HardwareUUID, &d.Hostname, &d.OS, &d.Arch,
-		&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status, &d.GroupName,
+		&d.InternalIP, &d.PublicIP, &d.ConnectionMode, &d.AgentVersion, &d.Status, &d.GroupName,
 		&d.CPUUsage, &d.RAMUsage, &d.LastSeenAt, &d.CreatedAt,
 	)
 	if err == sql.ErrNoRows {

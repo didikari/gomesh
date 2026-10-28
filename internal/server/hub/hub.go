@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -233,9 +235,24 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	clientIP := r.Header.Get("X-Forwarded-For")
+	clientIP := r.Header.Get("CF-Connecting-IP")
+	if clientIP == "" {
+		clientIP = r.Header.Get("X-Forwarded-For")
+	}
 	if clientIP == "" {
 		clientIP = r.RemoteAddr
+	}
+
+	// Detect connection mode: LAN vs WAN/Internet
+	connMode := strings.ToUpper(strings.TrimSpace(hello.ConnectionMode))
+	if connMode == "" {
+		if r.Header.Get("CF-Connecting-IP") != "" || r.Header.Get("CF-Ray") != "" {
+			connMode = "WAN"
+		} else if isPrivateOrLoopbackIP(clientIP) {
+			connMode = "LAN"
+		} else {
+			connMode = "WAN"
+		}
 	}
 
 	groupName := hello.GroupName
@@ -244,16 +261,17 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dev := &store.Device{
-		ID:           hello.DeviceID,
-		HardwareUUID: hello.HardwareUUID,
-		Hostname:     hello.Hostname,
-		OS:           hello.OS,
-		Arch:         hello.Arch,
-		InternalIP:   hello.InternalIP,
-		PublicIP:     clientIP,
-		AgentVersion: hello.AgentVersion,
-		Status:       "online",
-		GroupName:    groupName,
+		ID:             hello.DeviceID,
+		HardwareUUID:   hello.HardwareUUID,
+		Hostname:       hello.Hostname,
+		OS:             hello.OS,
+		Arch:           hello.Arch,
+		InternalIP:     hello.InternalIP,
+		PublicIP:       clientIP,
+		ConnectionMode: connMode,
+		AgentVersion:   hello.AgentVersion,
+		Status:         "online",
+		GroupName:      groupName,
 	}
 
 	if err := h.store.UpsertDevice(h.ctx, dev); err != nil {
@@ -802,4 +820,27 @@ func (h *Hub) FileAction(ctx context.Context, deviceID, action, targetPath strin
 		return fmt.Errorf("agent error: %s", resp.Error)
 	}
 	return nil
+}
+
+// isPrivateOrLoopbackIP checks if the IP address belongs to RFC 1918 private space, loopback, or internal router intranet
+func isPrivateOrLoopbackIP(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err == nil {
+		addr = host
+	}
+	addr = strings.TrimSpace(addr)
+	ip := net.ParseIP(addr)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return true
+	}
+	// Support intranet subnets routed via MikroTik / internal routers (including non-standard 172.x, 10.x, 192.168.x)
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 10 || ip4[0] == 172 || (ip4[0] == 192 && ip4[1] == 168) {
+			return true
+		}
+	}
+	return false
 }

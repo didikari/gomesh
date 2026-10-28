@@ -43,15 +43,17 @@ type Envelope struct {
 
 // HelloPayload is sent by the agent immediately after WebSocket handshake
 type HelloPayload struct {
-	DeviceID     string `json:"device_id"`
-	HardwareUUID string `json:"hardware_uuid"`
-	Hostname     string `json:"hostname"`
-	OS           string `json:"os"`
-	Arch         string `json:"arch"`
-	InternalIP   string `json:"internal_ip"`
-	AgentVersion string `json:"agent_version"`
-	Token        string `json:"token,omitempty"`
-	GroupName    string `json:"group_name,omitempty"`
+	DeviceID          string `json:"device_id"`
+	HardwareUUID      string `json:"hardware_uuid"`
+	Hostname          string `json:"hostname"`
+	OS                string `json:"os"`
+	Arch              string `json:"arch"`
+	InternalIP        string `json:"internal_ip"`
+	AgentVersion      string `json:"agent_version"`
+	Token             string `json:"token,omitempty"`
+	GroupName         string `json:"group_name,omitempty"`
+	ConnectionMode    string `json:"connection_mode,omitempty"`    // "LAN" or "WAN"
+	ConnectedEndpoint string `json:"connected_endpoint,omitempty"` // Target URL connected to
 }
 
 // HelloAckPayload is returned by the server confirming successful registration
