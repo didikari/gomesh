@@ -118,7 +118,6 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 	CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_at);
-	CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_name);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -157,7 +156,7 @@ func (s *Store) migrate() error {
 		return fmt.Errorf("failed executing schema: %w", err)
 	}
 
-	// Check if group_name column exists for existing tables created before
+	// For databases created prior to Phase 5: ensure group_name column exists
 	var groupColFound bool
 	rows, err := s.db.Query("PRAGMA table_info(devices);")
 	if err == nil {
@@ -175,7 +174,16 @@ func (s *Store) migrate() error {
 		rows.Close()
 	}
 	if !groupColFound {
-		_, _ = s.db.Exec("ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Default';")
+		_, err = s.db.Exec("ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Default';")
+		if err != nil {
+			return fmt.Errorf("failed migrating group_name column: %w", err)
+		}
+	}
+
+	// Now that group_name is guaranteed to exist on both new and existing tables, ensure index exists
+	_, err = s.db.Exec("CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_name);")
+	if err != nil {
+		return fmt.Errorf("failed creating group index: %w", err)
 	}
 
 	return nil
@@ -283,7 +291,9 @@ func (s *Store) ListDeviceGroups(ctx context.Context) ([]string, error) {
 // ListDevices returns all devices sorted by group_name, status (online first) and last_seen_at
 func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 	query := `
-	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, cpu_usage, ram_usage, last_seen_at, created_at
+	SELECT id, hardware_uuid, hostname, os, arch, 
+	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(agent_version, ''), 
+	       status, COALESCE(group_name, 'Default'), cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
 	ORDER BY group_name ASC, CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC;
 	`
@@ -313,7 +323,9 @@ func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 // GetDevice fetches a device by ID
 func (s *Store) GetDevice(ctx context.Context, id string) (*Device, error) {
 	query := `
-	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, cpu_usage, ram_usage, last_seen_at, created_at
+	SELECT id, hardware_uuid, hostname, os, arch, 
+	       COALESCE(internal_ip, ''), COALESCE(public_ip, ''), COALESCE(agent_version, ''), 
+	       status, COALESCE(group_name, 'Default'), cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
 	WHERE id = ?;
 	`

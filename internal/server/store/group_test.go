@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,4 +88,66 @@ func TestDeviceGrouping(t *testing.T) {
 	if len(groupsAfter) != 1 || groupsAfter[0] != "Group A" {
 		t.Fatalf("expected ['Group A'], got %v", groupsAfter)
 	}
+}
+
+func TestLegacyDatabaseMigrationWithoutGroupName(t *testing.T) {
+	tempDir, err := os.MkdirTemp("", "gomesh-legacy-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	dbPath := filepath.Join(tempDir, "legacy.db")
+
+	// Create legacy database with old schema (without group_name column)
+	rawDB, err := openRawDB(dbPath)
+	if err != nil {
+		t.Fatalf("failed creating raw db: %v", err)
+	}
+	legacySchema := `
+	CREATE TABLE devices (
+		id TEXT PRIMARY KEY,
+		hardware_uuid TEXT UNIQUE NOT NULL,
+		hostname TEXT NOT NULL,
+		os TEXT NOT NULL,
+		arch TEXT NOT NULL,
+		internal_ip TEXT,
+		public_ip TEXT,
+		agent_version TEXT,
+		status TEXT NOT NULL DEFAULT 'offline',
+		cpu_usage REAL DEFAULT 0.0,
+		ram_usage REAL DEFAULT 0.0,
+		last_seen_at DATETIME NOT NULL,
+		created_at DATETIME NOT NULL
+	);
+	INSERT INTO devices (id, hardware_uuid, hostname, os, arch, status, last_seen_at, created_at)
+	VALUES ('old-1', 'hw-uuid-1', 'legacy-pc', 'windows', 'amd64', 'online', '2026-10-28 10:00:00', '2026-10-28 10:00:00');
+	`
+	if _, err := rawDB.Exec(legacySchema); err != nil {
+		rawDB.Close()
+		t.Fatalf("failed creating legacy table: %v", err)
+	}
+	rawDB.Close()
+
+	// Now open using store.New - it must perform migration without error
+	st, err := New(dbPath)
+	if err != nil {
+		t.Fatalf("failed migrating legacy db: %v", err)
+	}
+	defer st.Close()
+
+	devs, err := st.ListDevices(context.Background())
+	if err != nil {
+		t.Fatalf("failed listing devices after legacy migration: %v", err)
+	}
+	if len(devs) != 1 {
+		t.Fatalf("expected 1 legacy device, got %d", len(devs))
+	}
+	if devs[0].GroupName != "Default" {
+		t.Fatalf("expected default group for legacy device, got '%s'", devs[0].GroupName)
+	}
+}
+
+func openRawDB(path string) (*sql.DB, error) {
+	return sql.Open("sqlite", path)
 }
