@@ -4,8 +4,8 @@
 # Binaries & build artifacts
 bin/
 dist/
-gomesh
-gomesh-agent
+/gomesh
+/gomesh-agent
 *.exe
 *.exe~
 *.dll

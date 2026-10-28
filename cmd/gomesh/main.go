@@ -18,6 +18,7 @@ import (
 	"gomesh/internal/server/auth"
 	"gomesh/internal/server/hub"
 	"gomesh/internal/server/store"
+	"gomesh/scripts"
 	"gomesh/web"
 )
 
@@ -80,25 +81,35 @@ func main() {
 		io.Copy(w, f)
 	})
 
-	// Serves install scripts
+	// Serves install scripts (embedded with fallback to disk)
 	mux.HandleFunc("GET /scripts/{file}", func(w http.ResponseWriter, r *http.Request) {
 		file := filepath.Base(r.PathValue("file"))
-		scriptPath := filepath.Join("scripts", file)
-		data, err := os.ReadFile(scriptPath)
-		if err != nil {
-			http.Error(w, "Script not found", http.StatusNotFound)
+		if data, err := scripts.Files.ReadFile(file); err == nil {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.Write(data)
 			return
 		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.Write(data)
+		candidates := []string{
+			filepath.Join("scripts", file),
+			filepath.Join("..", "scripts", file),
+		}
+		for _, p := range candidates {
+			if data, err := os.ReadFile(p); err == nil {
+				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+				w.Write(data)
+				return
+			}
+		}
+		http.Error(w, "Script not found", http.StatusNotFound)
 	})
 
 	// Serves compiled agent binaries for direct installer downloads
 	mux.HandleFunc("GET /bin/{file}", func(w http.ResponseWriter, r *http.Request) {
 		file := filepath.Base(r.PathValue("file"))
-		binPath := filepath.Join("bin", file)
-		if _, err := os.Stat(binPath); os.IsNotExist(err) {
-			http.Error(w, "Binary not found", http.StatusNotFound)
+		binPath := findBinaryPath(file)
+		if binPath == "" {
+			slog.Warn("requested binary not found on server", "file", file)
+			http.Error(w, fmt.Sprintf("Binary %s not found on server", file), http.StatusNotFound)
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -534,4 +545,29 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 	}
 
 	slog.Info("GoMesh Central Server stopped cleanly")
+}
+
+// findBinaryPath locates an agent binary regardless of whether gomesh is run from repo root or inside bin/
+func findBinaryPath(file string) string {
+	candidates := []string{
+		filepath.Join("bin", file),
+		file,
+		filepath.Join("..", "bin", file),
+	}
+
+	if execPath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(execPath)
+		candidates = append(candidates,
+			filepath.Join(execDir, file),
+			filepath.Join(execDir, "bin", file),
+			filepath.Join(execDir, "..", "bin", file),
+		)
+	}
+
+	for _, p := range candidates {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p
+		}
+	}
+	return ""
 }
