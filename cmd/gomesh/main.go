@@ -93,7 +93,7 @@ func main() {
 		w.Write(data)
 	})
 
-	// Serves compiled agent binaries for installer downloads
+	// Serves compiled agent binaries for direct installer downloads
 	mux.HandleFunc("GET /bin/{file}", func(w http.ResponseWriter, r *http.Request) {
 		file := filepath.Base(r.PathValue("file"))
 		binPath := filepath.Join("bin", file)
@@ -102,7 +102,104 @@ func main() {
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file))
 		http.ServeFile(w, r, binPath)
+	})
+
+	// Helper to extract host & protocol from request
+	getServerEndpoints := func(r *http.Request) (string, string) {
+		host := r.Host
+		proto := "http"
+		wsProto := "ws"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			proto = "https"
+			wsProto = "wss"
+		}
+		return fmt.Sprintf("%s://%s", proto, host), fmt.Sprintf("%s://%s/ws/agent", wsProto, host)
+	}
+
+	// GET /api/download/installer/windows-bat: Direct download 1-click Windows .bat installer
+	mux.HandleFunc("GET /api/download/installer/windows-bat", func(w http.ResponseWriter, r *http.Request) {
+		httpBase, wsURL := getServerEndpoints(r)
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			token = "default-token"
+		}
+		batScript := fmt.Sprintf(`@echo off
+echo ========================================================
+echo     GoMesh Remote Agent Windows One-Click Installer    
+echo ========================================================
+echo Server URL : %s
+echo Token      : %s
+echo.
+powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%s/scripts/install-windows.ps1' -OutFile install.ps1; .\install.ps1 -ServerUrl '%s' -Token '%s'"
+if %%ERRORLEVEL%% EQU 0 (
+    echo.
+    echo [+] GoMesh Agent installed and service started successfully!
+) else (
+    echo.
+    echo [!] Installation failed. Please ensure you ran this file as Administrator.
+)
+pause
+`, wsURL, token, httpBase, wsURL, token)
+
+		w.Header().Set("Content-Type", "application/x-bat")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh.bat\"")
+		w.Write([]byte(batScript))
+	})
+
+	// GET /api/download/installer/linux-sh: Direct download 1-click Linux installer
+	mux.HandleFunc("GET /api/download/installer/linux-sh", func(w http.ResponseWriter, r *http.Request) {
+		httpBase, wsURL := getServerEndpoints(r)
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			token = "default-token"
+		}
+		shScript := fmt.Sprintf(`#!/bin/bash
+# GoMesh Remote Agent Linux One-Click Installer
+set -e
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[!] Error: Root or sudo privileges required. Run with: sudo bash install-gomesh.sh"
+    exit 1
+fi
+
+echo "========================================================"
+echo "    GoMesh Remote Agent Linux One-Click Installer      "
+echo "========================================================"
+curl -sSL '%s/scripts/install-linux.sh' | bash -s -- -s '%s' -t '%s'
+`, httpBase, wsURL, token)
+
+		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh.sh\"")
+		w.Write([]byte(shScript))
+	})
+
+	// GET /api/download/installer/macos-sh: Direct download 1-click macOS installer
+	mux.HandleFunc("GET /api/download/installer/macos-sh", func(w http.ResponseWriter, r *http.Request) {
+		httpBase, wsURL := getServerEndpoints(r)
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			token = "default-token"
+		}
+		shScript := fmt.Sprintf(`#!/bin/bash
+# GoMesh Remote Agent macOS One-Click Installer
+set -e
+
+if [ "$(id -u)" -ne 0 ]; then
+    echo "[!] Error: Root or sudo privileges required. Run with: sudo bash install-gomesh-macos.sh"
+    exit 1
+fi
+
+echo "========================================================"
+echo "    GoMesh Remote Agent macOS One-Click Installer      "
+echo "========================================================"
+curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
+`, httpBase, wsURL, token)
+
+		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh-macos.sh\"")
+		w.Write([]byte(shScript))
 	})
 
 	// --- AUTH REST ENDPOINTS ---
@@ -183,6 +280,41 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(devices)
+	}))
+
+	// API: Update Device Group (Protected)
+	mux.HandleFunc("POST /api/devices/{id}/group", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		var req struct {
+			Group string `json:"group"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		if req.Group == "" {
+			req.Group = "Default"
+		}
+		if err := st.UpdateDeviceGroup(r.Context(), id, req.Group); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "group": req.Group})
+	}))
+
+	// API: List Device Groups (Protected)
+	mux.HandleFunc("GET /api/groups", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		groups, err := st.ListDeviceGroups(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if groups == nil {
+			groups = []string{"Default"}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(groups)
 	}))
 
 	// WebSocket endpoint for Agents (Reverse connection - agent authenticates via token in HelloPayload)

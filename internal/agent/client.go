@@ -29,6 +29,7 @@ type Config struct {
 	HardwareUUID string `json:"hardware_uuid"`
 	ServerURL    string `json:"server_url"`
 	AuthToken    string `json:"auth_token,omitempty"`
+	GroupName    string `json:"group_name,omitempty"`
 }
 
 // Client represents the GoMesh background device agent
@@ -88,6 +89,16 @@ func (c *Client) SetAuthToken(token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.cfg.AuthToken = token
+	if b, err := json.MarshalIndent(c.cfg, "", "  "); err == nil {
+		_ = os.WriteFile(c.cfgPath, b, 0644)
+	}
+}
+
+// SetGroupName configures the target machine group name
+func (c *Client) SetGroupName(group string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.GroupName = group
 	if b, err := json.MarshalIndent(c.cfg, "", "  "); err == nil {
 		_ = os.WriteFile(c.cfgPath, b, 0644)
 	}
@@ -171,6 +182,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		InternalIP:   getInternalIP(),
 		AgentVersion: c.version,
 		Token:        c.cfg.AuthToken,
+		GroupName:    c.cfg.GroupName,
 	}
 
 	if err := c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeHello, hello)); err != nil {

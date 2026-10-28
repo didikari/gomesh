@@ -51,6 +51,7 @@ type HelloPayload struct {
 	InternalIP   string `json:"internal_ip"`
 	AgentVersion string `json:"agent_version"`
 	Token        string `json:"token,omitempty"`
+	GroupName    string `json:"group_name,omitempty"`
 }
 
 // HelloAckPayload is returned by the server confirming successful registration

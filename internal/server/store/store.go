@@ -24,6 +24,7 @@ type Device struct {
 	PublicIP     string    `json:"public_ip"`
 	AgentVersion string    `json:"agent_version"`
 	Status       string    `json:"status"` // "online" or "offline"
+	GroupName    string    `json:"group_name"`
 	CPUUsage     float64   `json:"cpu_usage"`
 	RAMUsage     float64   `json:"ram_usage"`
 	LastSeenAt   time.Time `json:"last_seen_at"`
@@ -108,6 +109,7 @@ func (s *Store) migrate() error {
 		public_ip TEXT,
 		agent_version TEXT,
 		status TEXT NOT NULL DEFAULT 'offline',
+		group_name TEXT NOT NULL DEFAULT 'Default',
 		cpu_usage REAL DEFAULT 0.0,
 		ram_usage REAL DEFAULT 0.0,
 		last_seen_at DATETIME NOT NULL,
@@ -116,6 +118,7 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 	CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_at);
+	CREATE INDEX IF NOT EXISTS idx_devices_group ON devices(group_name);
 
 	CREATE TABLE IF NOT EXISTS users (
 		id TEXT PRIMARY KEY,
@@ -153,6 +156,28 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return fmt.Errorf("failed executing schema: %w", err)
 	}
+
+	// Check if group_name column exists for existing tables created before
+	var groupColFound bool
+	rows, err := s.db.Query("PRAGMA table_info(devices);")
+	if err == nil {
+		for rows.Next() {
+			var cid, notnull, pk int
+			var name, ctype string
+			var dfltValue interface{}
+			if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err == nil {
+				if name == "group_name" {
+					groupColFound = true
+					break
+				}
+			}
+		}
+		rows.Close()
+	}
+	if !groupColFound {
+		_, _ = s.db.Exec("ALTER TABLE devices ADD COLUMN group_name TEXT NOT NULL DEFAULT 'Default';")
+	}
+
 	return nil
 }
 
@@ -163,11 +188,14 @@ func (s *Store) UpsertDevice(ctx context.Context, dev *Device) error {
 	if dev.CreatedAt.IsZero() {
 		dev.CreatedAt = now
 	}
+	if dev.GroupName == "" {
+		dev.GroupName = "Default"
+	}
 
 	query := `
 	INSERT INTO devices (
-		id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, last_seen_at, created_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, last_seen_at, created_at
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(hardware_uuid) DO UPDATE SET
 		hostname = excluded.hostname,
 		os = excluded.os,
@@ -177,21 +205,22 @@ func (s *Store) UpsertDevice(ctx context.Context, dev *Device) error {
 		agent_version = excluded.agent_version,
 		status = excluded.status,
 		last_seen_at = excluded.last_seen_at
-	RETURNING id;
+	RETURNING id, group_name;
 	`
 
-	var assignedID string
+	var assignedID, assignedGroup string
 	err := s.db.QueryRowContext(ctx, query,
 		dev.ID, dev.HardwareUUID, dev.Hostname, dev.OS, dev.Arch,
-		dev.InternalIP, dev.PublicIP, dev.AgentVersion, dev.Status,
+		dev.InternalIP, dev.PublicIP, dev.AgentVersion, dev.Status, dev.GroupName,
 		dev.LastSeenAt, dev.CreatedAt,
-	).Scan(&assignedID)
+	).Scan(&assignedID, &assignedGroup)
 
 	if err != nil {
 		return fmt.Errorf("failed to upsert device: %w", err)
 	}
 
 	dev.ID = assignedID
+	dev.GroupName = assignedGroup
 	return nil
 }
 
@@ -219,12 +248,44 @@ func (s *Store) SetDeviceStatus(ctx context.Context, deviceID string, status str
 	return nil
 }
 
-// ListDevices returns all devices sorted by status (online first) and last_seen_at
+// UpdateDeviceGroup changes the assigned group for a device
+func (s *Store) UpdateDeviceGroup(ctx context.Context, id, groupName string) error {
+	if groupName == "" {
+		groupName = "Default"
+	}
+	query := `UPDATE devices SET group_name = ? WHERE id = ?;`
+	_, err := s.db.ExecContext(ctx, query, groupName, id)
+	if err != nil {
+		return fmt.Errorf("failed updating device group: %w", err)
+	}
+	return nil
+}
+
+// ListDeviceGroups returns all distinct group names in alphabetical order
+func (s *Store) ListDeviceGroups(ctx context.Context) ([]string, error) {
+	query := `SELECT DISTINCT group_name FROM devices ORDER BY group_name ASC;`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying device groups: %w", err)
+	}
+	defer rows.Close()
+
+	var groups []string
+	for rows.Next() {
+		var g string
+		if err := rows.Scan(&g); err == nil && g != "" {
+			groups = append(groups, g)
+		}
+	}
+	return groups, nil
+}
+
+// ListDevices returns all devices sorted by group_name, status (online first) and last_seen_at
 func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 	query := `
-	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, cpu_usage, ram_usage, last_seen_at, created_at
+	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
-	ORDER BY CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC;
+	ORDER BY group_name ASC, CASE WHEN status = 'online' THEN 0 ELSE 1 END, last_seen_at DESC;
 	`
 	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
@@ -237,7 +298,7 @@ func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 		var d Device
 		err := rows.Scan(
 			&d.ID, &d.HardwareUUID, &d.Hostname, &d.OS, &d.Arch,
-			&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status,
+			&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status, &d.GroupName,
 			&d.CPUUsage, &d.RAMUsage, &d.LastSeenAt, &d.CreatedAt,
 		)
 		if err != nil {
@@ -252,14 +313,14 @@ func (s *Store) ListDevices(ctx context.Context) ([]*Device, error) {
 // GetDevice fetches a device by ID
 func (s *Store) GetDevice(ctx context.Context, id string) (*Device, error) {
 	query := `
-	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, cpu_usage, ram_usage, last_seen_at, created_at
+	SELECT id, hardware_uuid, hostname, os, arch, internal_ip, public_ip, agent_version, status, group_name, cpu_usage, ram_usage, last_seen_at, created_at
 	FROM devices
 	WHERE id = ?;
 	`
 	var d Device
 	err := s.db.QueryRowContext(ctx, query, id).Scan(
 		&d.ID, &d.HardwareUUID, &d.Hostname, &d.OS, &d.Arch,
-		&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status,
+		&d.InternalIP, &d.PublicIP, &d.AgentVersion, &d.Status, &d.GroupName,
 		&d.CPUUsage, &d.RAMUsage, &d.LastSeenAt, &d.CreatedAt,
 	)
 	if err == sql.ErrNoRows {

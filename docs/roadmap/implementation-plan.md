@@ -72,10 +72,13 @@ Goal: Pengamanan sistem dan deployment readiness.
 - [x] Audit logging interaksi remote (`session_audits` tabel SQLite untuk terminal dan desktop streaming).
 - [x] Antivirus False-Positive Hardening: Tanpa packer (anti-UPX), build flags `-trimpath -ldflags="-s -w"`, pendaftaran service Windows via `sc.exe` standar.
 - [x] Add Device / Deployment UI Modal dengan 1-click copy command dan download binary standalone.
+- [x] Device Grouping & Filtering: Kolom `group_name` di database, tab filter group dinamis di web dashboard, dialog pemindahan group instan, dan flag `-group` pada agen (`PASS` pada `TestDeviceGrouping`).
+- [x] Direct Web Installer Downloads: Endpoint download installer 1-klik langsung dari browser (`/api/download/installer/windows-bat`, `/api/download/installer/linux-sh`, `/api/download/installer/macos-sh`) serta download langsung binary standalone (`gomesh-agent.exe`, `gomesh-agent-linux`, `gomesh-agent`).
 Success criteria:
 - [x] Multi-user RBAC aktif (`PASS` pada `TestSessionManagerLifecycle` & `TestAuthMiddleware`).
 - [x] Pendaftaran agen dan validasi enrollment token terverifikasi (`PASS` pada `TestAuthAndTokenEnrollment`).
-- [x] Agent dapat diinstal dengan single command script (Linux systemd, Windows PowerShell, macOS launchd).
+- [x] Agent dapat diinstal dengan single command script (Linux systemd, Windows PowerShell, macOS launchd) atau langsung diunduh dari web browser.
+- [x] Device dapat dikelompokkan ke dalam group (misal: "Group A", "Office", "Servers") dan difilter pada web console.
 
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |

@@ -14,6 +14,7 @@ import (
 func main() {
 	serverURL := flag.String("server", "ws://localhost:8080/ws/agent", "GoMesh Central Server WebSocket URL")
 	token := flag.String("token", "", "GoMesh Enrollment Token")
+	group := flag.String("group", "", "Target Device Group Name (e.g. Group A, Office, Lab)")
 	configDir := flag.String("config", ".", "Path to store agent persistent identity")
 	flag.Parse()
 
@@ -30,6 +31,9 @@ func main() {
 
 	if *token != "" {
 		client.SetAuthToken(*token)
+	}
+	if *group != "" {
+		client.SetGroupName(*group)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

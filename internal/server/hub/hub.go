@@ -238,6 +238,11 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 		clientIP = r.RemoteAddr
 	}
 
+	groupName := hello.GroupName
+	if groupName == "" {
+		groupName = "Default"
+	}
+
 	dev := &store.Device{
 		ID:           hello.DeviceID,
 		HardwareUUID: hello.HardwareUUID,
@@ -248,6 +253,7 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 		PublicIP:     clientIP,
 		AgentVersion: hello.AgentVersion,
 		Status:       "online",
+		GroupName:    groupName,
 	}
 
 	if err := h.store.UpsertDevice(h.ctx, dev); err != nil {
