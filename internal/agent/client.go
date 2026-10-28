@@ -3,14 +3,18 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"math/rand"
 	"net"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,13 +27,16 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+var errSessionDropped = errors.New("active session dropped")
+
 // Config holds local agent settings and persistent identity
 type Config struct {
-	DeviceID     string `json:"device_id"`
-	HardwareUUID string `json:"hardware_uuid"`
-	ServerURL    string `json:"server_url"`
-	AuthToken    string `json:"auth_token,omitempty"`
-	GroupName    string `json:"group_name,omitempty"`
+	DeviceID     string   `json:"device_id"`
+	HardwareUUID string   `json:"hardware_uuid"`
+	ServerURL    string   `json:"server_url"`
+	Endpoints    []string `json:"endpoints,omitempty"`
+	AuthToken    string   `json:"auth_token,omitempty"`
+	GroupName    string   `json:"group_name,omitempty"`
 }
 
 // Client represents the GoMesh background device agent
@@ -104,6 +111,41 @@ func (c *Client) SetGroupName(group string) {
 	}
 }
 
+// SetEndpoints configures candidate endpoints in order of priority (e.g. LAN first, then Public/Cloudflare)
+func (c *Client) SetEndpoints(endpoints []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.Endpoints = endpoints
+	if b, err := json.MarshalIndent(c.cfg, "", "  "); err == nil {
+		_ = os.WriteFile(c.cfgPath, b, 0644)
+	}
+}
+
+// GetEndpoints returns an ordered, deduplicated list of server endpoints to attempt
+func (c *Client) GetEndpoints() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	var list []string
+	seen := make(map[string]bool)
+	add := func(u string) {
+		u = strings.TrimSpace(u)
+		if u != "" && !seen[u] {
+			seen[u] = true
+			list = append(list, u)
+		}
+	}
+	for _, ep := range c.cfg.Endpoints {
+		add(ep)
+	}
+	if c.cfg.ServerURL != "" {
+		add(c.cfg.ServerURL)
+	}
+	if len(list) == 0 {
+		list = []string{"ws://localhost:8080/ws/agent"}
+	}
+	return list
+}
+
 // Run starts the persistent outbound agent loop
 func (c *Client) Run(ctx context.Context) error {
 	backoff := 1 * time.Second
@@ -119,7 +161,7 @@ func (c *Client) Run(ctx context.Context) error {
 		"os", runtime.GOOS,
 		"arch", runtime.GOARCH,
 		"internal_ip", internalIP,
-		"server", c.cfg.ServerURL,
+		"endpoints", c.GetEndpoints(),
 	)
 
 	for {
@@ -131,22 +173,53 @@ func (c *Client) Run(ctx context.Context) error {
 		default:
 		}
 
-		slog.Info("connecting to GoMesh Central Server...", "url", c.cfg.ServerURL)
-		err := c.connectAndServe(ctx)
-		if err != nil {
-			slog.Warn("connection ended with error", "error", err)
+		endpoints := c.GetEndpoints()
+		var connectedOnce bool
+
+		for i, ep := range endpoints {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+			}
+
+			isPrimary := (i == 0)
+			modeLabel := "LAN"
+			if !isPrimary {
+				modeLabel = "Internet/WAN"
+			}
+			slog.Info("connecting to GoMesh Server...", "endpoint", ep, "priority", i+1, "mode", modeLabel)
+
+			err := c.connectAndServe(ctx, ep, isPrimary, endpoints)
+			if err == nil {
+				connectedOnce = true
+				backoff = 1 * time.Second
+				break
+			}
+
+			if errors.Is(err, errSessionDropped) {
+				slog.Info("connection to server ended, rediscovering endpoints from priority 1...", "last_endpoint", ep)
+				connectedOnce = true
+				backoff = 1 * time.Second
+				break
+			}
+
+			slog.Info("endpoint unreachable, trying fallback...", "endpoint", ep, "error", err)
 		}
 
 		// Ensure all PTY processes close when connection drops
 		c.closeAllPTY()
 
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(backoff):
-			backoff = backoff * 2
-			if backoff > maxBackoff {
-				backoff = maxBackoff
+		if !connectedOnce {
+			slog.Warn("all server endpoints failed to connect, backing off...", "backoff", backoff)
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(backoff):
+				backoff = backoff * 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
 			}
 		}
 	}
@@ -159,12 +232,25 @@ func (c *Client) sendEnvelope(conn *websocket.Conn, env protocol.Envelope) error
 	return conn.WriteJSON(env)
 }
 
-// connectAndServe handles a single connection session
-func (c *Client) connectAndServe(ctx context.Context) error {
-	dialer := websocket.DefaultDialer
-	dialer.HandshakeTimeout = 10 * time.Second
+// toHealthURL converts a websocket server URL to an HTTP health check URL
+func toHealthURL(wsURL string) string {
+	u, err := url.Parse(wsURL)
+	if err != nil {
+		return ""
+	}
+	scheme := "http"
+	if u.Scheme == "wss" || u.Scheme == "https" {
+		scheme = "https"
+	}
+	return fmt.Sprintf("%s://%s/api/health", scheme, u.Host)
+}
 
-	conn, _, err := dialer.DialContext(ctx, c.cfg.ServerURL, nil)
+// connectAndServe handles a single connection session to a target endpoint
+func (c *Client) connectAndServe(ctx context.Context, endpoint string, isPrimary bool, allEndpoints []string) error {
+	dialer := websocket.DefaultDialer
+	dialer.HandshakeTimeout = 3 * time.Second
+
+	conn, _, err := dialer.DialContext(ctx, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("failed dial websocket: %w", err)
 	}
@@ -172,17 +258,24 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 
 	hostname, _ := os.Hostname()
 
+	connMode := "WAN"
+	if isPrimary {
+		connMode = "LAN"
+	}
+
 	// 1. Send Hello handshake
 	hello := protocol.HelloPayload{
-		DeviceID:     c.cfg.DeviceID,
-		HardwareUUID: c.cfg.HardwareUUID,
-		Hostname:     hostname,
-		OS:           runtime.GOOS,
-		Arch:         runtime.GOARCH,
-		InternalIP:   getInternalIP(),
-		AgentVersion: c.version,
-		Token:        c.cfg.AuthToken,
-		GroupName:    c.cfg.GroupName,
+		DeviceID:          c.cfg.DeviceID,
+		HardwareUUID:      c.cfg.HardwareUUID,
+		Hostname:          hostname,
+		OS:                runtime.GOOS,
+		Arch:              runtime.GOARCH,
+		InternalIP:        getInternalIP(),
+		AgentVersion:      c.version,
+		Token:             c.cfg.AuthToken,
+		GroupName:         c.cfg.GroupName,
+		ConnectionMode:    connMode,
+		ConnectedEndpoint: endpoint,
 	}
 
 	if err := c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeHello, hello)); err != nil {
@@ -207,6 +300,15 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 
 	done := make(chan struct{})
 	defer close(done)
+
+	// Goroutine to close socket immediately when context is canceled
+	go func() {
+		select {
+		case <-done:
+		case <-ctx.Done():
+			conn.Close()
+		}
+	}()
 
 	// Goroutine to send heartbeats
 	go func() {
@@ -238,12 +340,43 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		}
 	}()
 
+	// 4. Background prober: if connected via fallback (WAN), probe primary LAN endpoint
+	if !isPrimary && len(allEndpoints) > 0 {
+		lanEP := allEndpoints[0]
+		healthURL := toHealthURL(lanEP)
+		if healthURL != "" {
+			go func() {
+				probeTicker := time.NewTicker(30 * time.Second)
+				defer probeTicker.Stop()
+				httpClient := &http.Client{Timeout: 1500 * time.Millisecond}
+				for {
+					select {
+					case <-done:
+						return
+					case <-ctx.Done():
+						return
+					case <-probeTicker.C:
+						resp, err := httpClient.Get(healthURL)
+						if err == nil {
+							resp.Body.Close()
+							if resp.StatusCode == http.StatusOK {
+								slog.Info("primary LAN endpoint is reachable! Switching from WAN to high-speed LAN...", "lan_endpoint", lanEP)
+								conn.Close()
+								return
+							}
+						}
+					}
+				}
+			}()
+		}
+	}
+
 	// Read loop to receive server commands
 	for {
 		conn.SetReadDeadline(time.Now().Add(40 * time.Second))
 		var env protocol.Envelope
 		if err := conn.ReadJSON(&env); err != nil {
-			return fmt.Errorf("read error: %w", err)
+			return fmt.Errorf("%w: read error: %v", errSessionDropped, err)
 		}
 
 		switch env.Type {
@@ -500,6 +633,7 @@ func (c *Client) startDesktopStream(conn *websocket.Conn, payload protocol.Deskt
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
+		var lastErrLog time.Time
 		for {
 			select {
 			case <-stopChan:
@@ -507,7 +641,10 @@ func (c *Client) startDesktopStream(conn *websocket.Conn, payload protocol.Deskt
 			case <-ticker.C:
 				frame, err := desktop.CaptureDisplay(payload.Display, quality)
 				if err != nil {
-					slog.Warn("desktop screen capture error", "error", err)
+					if time.Since(lastErrLog) > 5*time.Second {
+						slog.Warn("desktop screen capture error", "error", err)
+						lastErrLog = time.Now()
+					}
 					continue
 				}
 				frame.SessionID = payload.SessionID
