@@ -1,0 +1,29 @@
+# Reference folder
+.ref/
+
+# Binaries & build artifacts
+bin/
+dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test artifacts & coverage
+*.test
+*.out
+coverage.html
+
+# GoMesh runtime data
+data/
+*.db
+*.db-wal
+*.db-shm
+*.log
+
+# OS & IDE metadata
+.DS_Store
+.idea/
+.vscode/
+*.swp
