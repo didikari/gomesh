@@ -78,6 +78,11 @@ func main() {
 		h.HandleAgentWS(w, r)
 	})
 
+	// WebSocket endpoint for Interactive Terminal (Technician Web Console)
+	mux.HandleFunc("GET /ws/terminal", func(w http.ResponseWriter, r *http.Request) {
+		h.HandleTerminalWS(w, r)
+	})
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),
 		Handler:      mux,

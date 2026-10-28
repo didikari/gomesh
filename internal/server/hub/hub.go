@@ -47,23 +47,35 @@ func (s *AgentSession) SendMessage(env protocol.Envelope) error {
 	return s.Conn.WriteJSON(env)
 }
 
+// TerminalSession represents an active web browser terminal connection
+type TerminalSession struct {
+	SessionID   string
+	DeviceID    string
+	BrowserConn *websocket.Conn
+	writeMu     sync.Mutex
+	closed      bool
+}
+
 // Hub manages active agent and browser sessions
 type Hub struct {
-	store  *store.Store
-	agents map[string]*AgentSession // keyed by DeviceID
-	mu     sync.RWMutex
-	ctx    context.Context
-	cancel context.CancelFunc
+	store            *store.Store
+	agents           map[string]*AgentSession    // keyed by DeviceID
+	terminalSessions map[string]*TerminalSession // keyed by SessionID
+	mu               sync.RWMutex
+	termMu           sync.RWMutex
+	ctx              context.Context
+	cancel           context.CancelFunc
 }
 
 // New creates and starts a new Hub
 func New(st *store.Store) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
 	h := &Hub{
-		store:  st,
-		agents: make(map[string]*AgentSession),
-		ctx:    ctx,
-		cancel: cancel,
+		store:            st,
+		agents:           make(map[string]*AgentSession),
+		terminalSessions: make(map[string]*TerminalSession),
+		ctx:              ctx,
+		cancel:           cancel,
 	}
 
 	go h.reaperLoop()
@@ -82,6 +94,16 @@ func (h *Hub) Stop() {
 		a.writeMu.Unlock()
 	}
 	h.agents = make(map[string]*AgentSession)
+
+	h.termMu.Lock()
+	defer h.termMu.Unlock()
+	for _, t := range h.terminalSessions {
+		t.writeMu.Lock()
+		t.closed = true
+		t.BrowserConn.Close()
+		t.writeMu.Unlock()
+	}
+	h.terminalSessions = make(map[string]*TerminalSession)
 }
 
 // reaperLoop periodically checks for stale connections
@@ -267,9 +289,141 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 			})
 			_ = session.SendMessage(ack)
 
+		case protocol.TypePTYData:
+			raw, _ := json.Marshal(env.Payload)
+			var ptyData protocol.PTYDataPayload
+			if err := json.Unmarshal(raw, &ptyData); err == nil {
+				h.termMu.RLock()
+				termSess, exists := h.terminalSessions[ptyData.SessionID]
+				h.termMu.RUnlock()
+				if exists && termSess != nil {
+					termSess.writeMu.Lock()
+					if !termSess.closed {
+						termSess.BrowserConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+						_ = termSess.BrowserConn.WriteMessage(websocket.TextMessage, []byte(ptyData.Data))
+					}
+					termSess.writeMu.Unlock()
+				}
+			}
+
+		case protocol.TypePTYStop:
+			raw, _ := json.Marshal(env.Payload)
+			var ptyStop protocol.PTYStopPayload
+			if err := json.Unmarshal(raw, &ptyStop); err == nil {
+				h.closeTerminalSession(ptyStop.SessionID)
+			}
+
 		default:
 			slog.Debug("received message from agent", "type", env.Type, "device_id", dev.ID)
 		}
+	}
+}
+
+// HandleTerminalWS handles terminal sessions opened from technician's browser
+func (h *Hub) HandleTerminalWS(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.URL.Query().Get("device_id")
+	if deviceID == "" {
+		http.Error(w, "missing device_id", http.StatusBadRequest)
+		return
+	}
+
+	h.mu.RLock()
+	agentSess, exists := h.agents[deviceID]
+	h.mu.RUnlock()
+
+	if !exists || agentSess == nil {
+		http.Error(w, "device is not currently online", http.StatusNotFound)
+		return
+	}
+
+	browserConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("terminal websocket upgrade failed", "error", err)
+		return
+	}
+	defer browserConn.Close()
+
+	sessionID := uuid.NewString()
+	termSess := &TerminalSession{
+		SessionID:   sessionID,
+		DeviceID:    deviceID,
+		BrowserConn: browserConn,
+	}
+
+	h.termMu.Lock()
+	h.terminalSessions[sessionID] = termSess
+	h.termMu.Unlock()
+
+	defer h.closeTerminalSession(sessionID)
+
+	slog.Info("opening interactive terminal session", "session_id", sessionID, "device_id", deviceID)
+
+	// Send PTYStart to target agent
+	cols := uint16(80)
+	rows := uint16(24)
+	startEnv := protocol.NewEnvelope(protocol.TypePTYStart, protocol.PTYStartPayload{
+		SessionID: sessionID,
+		Cols:      cols,
+		Rows:      rows,
+	})
+	if err := agentSess.SendMessage(startEnv); err != nil {
+		slog.Error("failed sending pty start to agent", "error", err)
+		return
+	}
+
+	// Read input from browser (keystrokes / resize) and forward to agent
+	for {
+		msgType, msg, err := browserConn.ReadMessage()
+		if err != nil {
+			break
+		}
+
+		if msgType == websocket.TextMessage {
+			// Check if message is a resize JSON event
+			var resizeEv struct {
+				Type string `json:"type"`
+				Cols uint16 `json:"cols"`
+				Rows uint16 `json:"rows"`
+			}
+			if err := json.Unmarshal(msg, &resizeEv); err == nil && resizeEv.Type == "resize" {
+				_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypePTYResize, protocol.PTYResizePayload{
+					SessionID: sessionID,
+					Cols:      resizeEv.Cols,
+					Rows:      resizeEv.Rows,
+				}))
+				continue
+			}
+
+			// Normal input keystrokes
+			_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypePTYData, protocol.PTYDataPayload{
+				SessionID: sessionID,
+				Data:      string(msg),
+			}))
+		} else if msgType == websocket.BinaryMessage {
+			_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypePTYData, protocol.PTYDataPayload{
+				SessionID: sessionID,
+				Data:      string(msg),
+			}))
+		}
+	}
+
+	// Notify agent to close PTY process
+	_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypePTYStop, protocol.PTYStopPayload{
+		SessionID: sessionID,
+	}))
+}
+
+func (h *Hub) closeTerminalSession(sessionID string) {
+	h.termMu.Lock()
+	defer h.termMu.Unlock()
+
+	if term, ok := h.terminalSessions[sessionID]; ok {
+		term.writeMu.Lock()
+		term.closed = true
+		_ = term.BrowserConn.Close()
+		term.writeMu.Unlock()
+		delete(h.terminalSessions, sessionID)
+		slog.Info("terminal session closed", "session_id", sessionID)
 	}
 }
 

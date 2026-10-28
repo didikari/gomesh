@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"gomesh/internal/agent/pty"
 	"gomesh/internal/protocol"
 
 	"github.com/google/uuid"
@@ -29,11 +31,13 @@ type Config struct {
 
 // Client represents the GoMesh background device agent
 type Client struct {
-	cfg       Config
-	cfgPath   string
-	version   string
-	startTime time.Time
-	mu        sync.Mutex
+	cfg         Config
+	cfgPath     string
+	version     string
+	startTime   time.Time
+	mu          sync.Mutex
+	ptySessions map[string]pty.PTY
+	ptyMu       sync.Mutex
 }
 
 // NewClient initializes a client with persistent configuration
@@ -67,10 +71,11 @@ func NewClient(serverURL string, configDir string) (*Client, error) {
 	}
 
 	return &Client{
-		cfg:       cfg,
-		cfgPath:   cfgPath,
-		version:   "0.1.0",
-		startTime: time.Now(),
+		cfg:         cfg,
+		cfgPath:     cfgPath,
+		version:     "0.1.0",
+		startTime:   time.Now(),
+		ptySessions: make(map[string]pty.PTY),
 	}, nil
 }
 
@@ -96,6 +101,7 @@ func (c *Client) Run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			slog.Info("agent stopping per context cancellation")
+			c.closeAllPTY()
 			return nil
 		default:
 		}
@@ -105,6 +111,9 @@ func (c *Client) Run(ctx context.Context) error {
 		if err != nil {
 			slog.Warn("connection ended with error", "error", err)
 		}
+
+		// Ensure all PTY processes close when connection drops
+		c.closeAllPTY()
 
 		select {
 		case <-ctx.Done():
@@ -116,6 +125,13 @@ func (c *Client) Run(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (c *Client) sendEnvelope(conn *websocket.Conn, env protocol.Envelope) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+	return conn.WriteJSON(env)
 }
 
 // connectAndServe handles a single connection session
@@ -143,7 +159,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		Token:        c.cfg.AuthToken,
 	}
 
-	if err := conn.WriteJSON(protocol.NewEnvelope(protocol.TypeHello, hello)); err != nil {
+	if err := c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeHello, hello)); err != nil {
 		return fmt.Errorf("failed sending hello envelope: %w", err)
 	}
 
@@ -177,10 +193,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 			case <-ticker.C:
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				// Lightweight memory calculation (MB)
 				ramMB := float64(m.Alloc) / 1024 / 1024
-
-				// Estimated CPU variation (mocked realistic telemetry for MVP)
 				cpuVal := 1.0 + rand.Float64()*3.0
 
 				hb := protocol.HeartbeatPayload{
@@ -190,12 +203,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 					Uptime:   uint64(time.Since(c.startTime).Seconds()),
 				}
 
-				c.mu.Lock()
-				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				err := conn.WriteJSON(protocol.NewEnvelope(protocol.TypeHeartbeat, hb))
-				c.mu.Unlock()
-
-				if err != nil {
+				if err := c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeHeartbeat, hb)); err != nil {
 					slog.Warn("failed to send heartbeat", "error", err)
 					conn.Close()
 					return
@@ -215,9 +223,123 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 		switch env.Type {
 		case protocol.TypeHeartbeatAck:
 			slog.Debug("heartbeat acknowledged by server")
+
+		case protocol.TypePTYStart:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.PTYStartPayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				go c.startPTYSession(conn, payload)
+			}
+
+		case protocol.TypePTYData:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.PTYDataPayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				c.writePTYData(payload.SessionID, payload.Data)
+			}
+
+		case protocol.TypePTYResize:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.PTYResizePayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				c.resizePTY(payload.SessionID, payload.Cols, payload.Rows)
+			}
+
+		case protocol.TypePTYStop:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.PTYStopPayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				c.stopPTYSession(payload.SessionID)
+			}
+
 		default:
 			slog.Info("received server command", "type", env.Type)
 		}
+	}
+}
+
+func (c *Client) startPTYSession(conn *websocket.Conn, payload protocol.PTYStartPayload) {
+	slog.Info("starting new PTY session", "session_id", payload.SessionID, "cols", payload.Cols, "rows", payload.Rows)
+
+	p, err := pty.Start(payload.Cols, payload.Rows)
+	if err != nil {
+		slog.Error("failed to start pty process", "error", err)
+		_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypePTYStop, protocol.PTYStopPayload{
+			SessionID: payload.SessionID,
+		}))
+		return
+	}
+
+	c.ptyMu.Lock()
+	c.ptySessions[payload.SessionID] = p
+	c.ptyMu.Unlock()
+
+	// Read output from PTY and stream to server
+	buf := make([]byte, 4096)
+	for {
+		n, err := p.Read(buf)
+		if n > 0 {
+			data := string(buf[:n])
+			env := protocol.NewEnvelope(protocol.TypePTYData, protocol.PTYDataPayload{
+				SessionID: payload.SessionID,
+				Data:      data,
+			})
+			if sendErr := c.sendEnvelope(conn, env); sendErr != nil {
+				break
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				slog.Debug("pty read ended", "error", err)
+			}
+			break
+		}
+	}
+
+	c.stopPTYSession(payload.SessionID)
+	_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypePTYStop, protocol.PTYStopPayload{
+		SessionID: payload.SessionID,
+	}))
+}
+
+func (c *Client) writePTYData(sessionID string, data string) {
+	c.ptyMu.Lock()
+	p, ok := c.ptySessions[sessionID]
+	c.ptyMu.Unlock()
+
+	if ok && p != nil {
+		_, _ = p.Write([]byte(data))
+	}
+}
+
+func (c *Client) resizePTY(sessionID string, cols, rows uint16) {
+	c.ptyMu.Lock()
+	p, ok := c.ptySessions[sessionID]
+	c.ptyMu.Unlock()
+
+	if ok && p != nil {
+		_ = p.Resize(cols, rows)
+	}
+}
+
+func (c *Client) stopPTYSession(sessionID string) {
+	c.ptyMu.Lock()
+	defer c.ptyMu.Unlock()
+
+	if p, ok := c.ptySessions[sessionID]; ok {
+		_ = p.Close()
+		delete(c.ptySessions, sessionID)
+		slog.Info("PTY session terminated", "session_id", sessionID)
+	}
+}
+
+func (c *Client) closeAllPTY() {
+	c.ptyMu.Lock()
+	defer c.ptyMu.Unlock()
+
+	for id, p := range c.ptySessions {
+		_ = p.Close()
+		delete(c.ptySessions, id)
 	}
 }
 

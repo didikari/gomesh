@@ -32,14 +32,14 @@ Success criteria:
 - [x] Agent binary berhasil terkoneksi ke Server dan status di web dashboard berubah menjadi "Online" dalam < 2 detik.
 - [x] Saat agen dihentikan, server mendeteksi status "Offline" via timeout heartbeat / disconnect.
 
-### Phase 2 — Web Terminal (Interactive PTY Relay)
+### Phase 2 — Web Terminal (Interactive PTY Relay) [SELESAI]
 Goal: Akses shell interaktif dari browser ke komputer target.
-- Integrasi `xterm.js` di web dashboard.
-- Implementasi PTY spawner di agen (`creack/pty` untuk Linux/Mac, ConPTY untuk Windows).
-- Relay data PTY dua arah di server hub.
-- Penanganan resize window terminal (cols/rows).
+- [x] Integrasi `xterm.js` di web dashboard (`web/index.html`).
+- [x] Implementasi PTY spawner di agen (`creack/pty` untuk Linux/Mac, Windows fallback di `internal/agent/pty/`).
+- [x] Relay data PTY dua arah di server hub (`internal/server/hub/`).
+- [x] Penanganan resize window terminal dinamis (`cols`/`rows`).
 Success criteria:
-- Teknisi dapat mengetik perintah shell di browser dan melihat output secara interaktif dan real-time.
+- [x] Teknisi dapat mengetik perintah shell di browser dan melihat output secara interaktif dan real-time (`PASS` pada unit/integration test).
 
 ### Phase 3 — Remote File Explorer & Transfer
 Goal: Penjelajahan direktori dan transfer file jarak jauh.
