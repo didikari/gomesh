@@ -13,24 +13,24 @@
 
 ## 3. Recommended Phase Structure
 
-### Phase 0 — Project Initialization & Protocol Definition
+### Phase 0 — Project Initialization & Protocol Definition [SELESAI]
 Goal: Inisialisasi struktur repo Go, embedded web assets dasar, dan kontrak protokol WebSocket.
-- Setup `go.mod` dan folder layout (`cmd/`, `internal/`, `web/`).
-- Definisi tipe pesan framing di `internal/protocol/messages.go`.
-- Server HTTP skeleton dengan embedded static HTML dasar (`web/embed.go`).
+- [x] Setup `go.mod` dan folder layout (`cmd/`, `internal/`, `web/`).
+- [x] Definisi tipe pesan framing di `internal/protocol/messages.go`.
+- [x] Server HTTP skeleton dengan embedded static HTML dasar (`web/embed.go`).
 Success criteria:
-- Server berhasil dijalankan dan menyajikan halaman landing status di browser.
-- Protokol framing memiliki unit test validasi encoder/decoder.
+- [x] Server berhasil dijalankan dan menyajikan halaman landing status di browser.
+- [x] Protokol framing memiliki unit test validasi encoder/decoder (`PASS`).
 
-### Phase 1 — Agent Reverse Connection & Device Presence
+### Phase 1 — Agent Reverse Connection & Device Presence [SELESAI]
 Goal: Hubungan dua arah antara Agent dan Server dengan heartbeat realtime.
-- Implementasi `internal/server/hub` (WebSocket handler untuk agen).
-- Implementasi `internal/agent/client.go` (Agent reverse WSS dialer dengan auto-reconnect).
-- SQLite store untuk persistence metadata device (hostname, IP, OS, status).
-- Web dashboard menampilkan tabel device online/offline realtime.
+- [x] Implementasi `internal/server/hub` (WebSocket handler untuk agen).
+- [x] Implementasi `internal/agent/client.go` (Agent reverse WSS dialer dengan auto-reconnect).
+- [x] SQLite store untuk persistence metadata device (hostname, IP, OS, status).
+- [x] Web dashboard menampilkan tabel device online/offline realtime.
 Success criteria:
-- Agent binary berhasil terkoneksi ke Server dan status di web dashboard berubah menjadi "Online" dalam < 2 detik.
-- Saat agen dihentikan, server mendeteksi status "Offline" via timeout heartbeat.
+- [x] Agent binary berhasil terkoneksi ke Server dan status di web dashboard berubah menjadi "Online" dalam < 2 detik.
+- [x] Saat agen dihentikan, server mendeteksi status "Offline" via timeout heartbeat / disconnect.
 
 ### Phase 2 — Web Terminal (Interactive PTY Relay)
 Goal: Akses shell interaktif dari browser ke komputer target.

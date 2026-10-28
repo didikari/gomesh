@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoMesh — Remote Device Management Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @keyframes pulse-fast {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.1); }
+    }
+    .pulse-dot {
+      animation: pulse-fast 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="min-h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navbar -->
+  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="h-9 w-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 text-white font-black text-xl tracking-wider">
+          M
+        </div>
+        <div>
+          <span class="font-bold text-lg tracking-tight text-white flex items-center gap-2">
+            GoMesh <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">v0.1.0</span>
+          </span>
+          <p class="text-xs text-slate-400">Open-Source Remote Device Management</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
+          <span class="h-2 w-2 rounded-full bg-emerald-400 pulse-dot"></span>
+          <span class="text-slate-300">Relay Server Active</span>
+        </div>
+        <button onclick="fetchDevices()" class="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-700">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    
+    <!-- Stats Overview -->
+    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Managed Nodes</p>
+          <h3 id="stat-total" class="text-2xl font-bold text-white mt-1">0</h3>
+        </div>
+        <div class="p-3 rounded-lg bg-slate-800/80 text-indigo-400">
+          <i data-lucide="server" class="w-6 h-6"></i>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Online & Connected</p>
+          <h3 id="stat-online" class="text-2xl font-bold text-emerald-400 mt-1">0</h3>
+        </div>
+        <div class="p-3 rounded-lg bg-emerald-950/30 text-emerald-400 border border-emerald-500/20">
+          <i data-lucide="radio" class="w-6 h-6"></i>
+        </div>
+      </div>
+
+      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+        <div>
+          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Offline / Disconnected</p>
+          <h3 id="stat-offline" class="text-2xl font-bold text-slate-400 mt-1">0</h3>
+        </div>
+        <div class="p-3 rounded-lg bg-slate-800/80 text-slate-400">
+          <i data-lucide="power-off" class="w-6 h-6"></i>
+        </div>
+      </div>
+    </section>
+
+    <!-- Device List Table -->
+    <section class="space-y-4">
+      <div class="flex items-center justify-between">
+        <h2 class="text-lg font-bold text-white flex items-center gap-2">
+          <i data-lucide="monitor" class="w-5 h-5 text-indigo-400"></i> Managed Devices
+        </h2>
+        <span class="text-xs text-slate-400" id="sync-timer">Auto-sync: 3s</span>
+      </div>
+
+      <div class="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-900/80 text-slate-400 uppercase text-xs border-b border-slate-800 font-semibold tracking-wider">
+              <tr>
+                <th class="py-3.5 px-4">Status</th>
+                <th class="py-3.5 px-4">Hostname & OS</th>
+                <th class="py-3.5 px-4">Architecture</th>
+                <th class="py-3.5 px-4">Network IP</th>
+                <th class="py-3.5 px-4">Telemetry (CPU / RAM)</th>
+                <th class="py-3.5 px-4">Last Seen</th>
+                <th class="py-3.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="device-tbody" class="divide-y divide-slate-800/60">
+              <tr>
+                <td colspan="7" class="py-12 text-center text-slate-500">
+                  <div class="flex flex-col items-center justify-center gap-2">
+                    <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-indigo-400"></i>
+                    <p>Memuat daftar perangkat...</p>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Installation Helper -->
+    <section class="bg-slate-950/40 border border-dashed border-slate-800 rounded-xl p-6">
+      <h3 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
+        <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Cara Menghubungkan Agent Baru:
+      </h3>
+      <p class="text-xs text-slate-400 mt-1">Jalankan binary agen di komputer target (bisa di jaringan lokal maupun internet publik):</p>
+      <div class="mt-3 p-3 bg-slate-900 rounded-lg border border-slate-800 font-mono text-xs text-indigo-300 flex items-center justify-between overflow-x-auto">
+        <code>./gomesh-agent -server ws://localhost:8080/ws/agent</code>
+        <button onclick="navigator.clipboard.writeText('./gomesh-agent -server ws://localhost:8080/ws/agent')" class="ml-4 text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800">Copy</button>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+    GoMesh • High Performance Remote Management • Built with Pure Go
+  </footer>
+
+  <script>
+    function getOSIcon(os) {
+      os = (os || '').toLowerCase();
+      if (os.includes('darwin') || os.includes('mac')) {
+        return '<span class="inline-flex items-center gap-1 text-slate-200"><i data-lucide="apple" class="w-4 h-4 text-slate-300"></i> macOS</span>';
+      } else if (os.includes('windows')) {
+        return '<span class="inline-flex items-center gap-1 text-sky-400"><i data-lucide="app-window" class="w-4 h-4"></i> Windows</span>';
+      } else if (os.includes('linux')) {
+        return '<span class="inline-flex items-center gap-1 text-amber-400"><i data-lucide="terminal" class="w-4 h-4"></i> Linux</span>';
+      }
+      return `<span class="text-slate-300">${os}</span>`;
+    }
+
+    function timeAgo(dateString) {
+      const date = new Date(dateString);
+      const seconds = Math.floor((new Date() - date) / 1000);
+      if (seconds < 5) return 'Just now';
+      if (seconds < 60) return `${seconds}s ago`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 60) return `${minutes}m ago`;
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return `${hours}h ago`;
+      return `${Math.floor(hours / 24)}d ago`;
+    }
+
+    async function fetchDevices() {
+      try {
+        const res = await fetch('/api/devices');
+        if (!res.ok) throw new Error('Failed to fetch devices');
+        const devices = await res.json() || [];
+
+        let onlineCount = 0;
+        let offlineCount = 0;
+
+        const tbody = document.getElementById('device-tbody');
+        if (devices.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" class="py-12 text-center text-slate-500">
+                <div class="flex flex-col items-center justify-center gap-2">
+                  <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
+                  <p class="font-medium text-slate-400">Belum ada perangkat yang terhubung</p>
+                  <p class="text-xs text-slate-500">Jalankan binary agent di komputer target untuk mendaftarkan perangkat.</p>
+                </div>
+              </td>
+            </tr>
+          `;
+        } else {
+          tbody.innerHTML = devices.map(d => {
+            const isOnline = d.status === 'online';
+            if (isOnline) onlineCount++; else offlineCount++;
+
+            const statusBadge = isOnline
+              ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 pulse-dot"></span> Online</span>`
+              : `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700"><span class="h-1.5 w-1.5 rounded-full bg-slate-500"></span> Offline</span>`;
+
+            const cpuBar = isOnline ? `
+              <div class="w-28 space-y-1">
+                <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                  <span>CPU: ${d.cpu_usage.toFixed(1)}%</span>
+                  <span>RAM: ${d.ram_usage.toFixed(1)}%</span>
+                </div>
+                <div class="h-1.5 bg-slate-800 rounded-full overflow-hidden flex">
+                  <div class="bg-indigo-500 h-full" style="width: ${Math.min(d.cpu_usage, 100)}%"></div>
+                </div>
+              </div>
+            ` : `<span class="text-xs text-slate-500">-</span>`;
+
+            return `
+              <tr class="hover:bg-slate-900/40 transition-colors">
+                <td class="py-3.5 px-4">${statusBadge}</td>
+                <td class="py-3.5 px-4">
+                  <div class="font-semibold text-white">${d.hostname}</div>
+                  <div class="text-xs text-slate-400 mt-0.5">${getOSIcon(d.os)}</div>
+                </td>
+                <td class="py-3.5 px-4 font-mono text-xs text-slate-300">${d.arch}</td>
+                <td class="py-3.5 px-4 text-xs font-mono">
+                  <div class="text-slate-300">Int: ${d.internal_ip || '-'}</div>
+                  <div class="text-slate-500 text-[11px]">Pub: ${d.public_ip || '-'}</div>
+                </td>
+                <td class="py-3.5 px-4">${cpuBar}</td>
+                <td class="py-3.5 px-4 text-xs text-slate-400">${timeAgo(d.last_seen_at)}</td>
+                <td class="py-3.5 px-4 text-right">
+                  <div class="inline-flex items-center gap-1">
+                    <button class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1 ${!isOnline ? 'opacity-40 cursor-not-allowed' : ''}">
+                      <i data-lucide="terminal" class="w-3.5 h-3.5 text-indigo-400"></i> Terminal
+                    </button>
+                    <button class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1 ${!isOnline ? 'opacity-40 cursor-not-allowed' : ''}">
+                      <i data-lucide="layout" class="w-3.5 h-3.5 text-emerald-400"></i> Desktop
+                    </button>
+                    <button class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1 ${!isOnline ? 'opacity-40 cursor-not-allowed' : ''}">
+                      <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-400"></i> Files
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('');
+        }
+
+        document.getElementById('stat-total').innerText = devices.length;
+        document.getElementById('stat-online').innerText = onlineCount;
+        document.getElementById('stat-offline').innerText = offlineCount;
+
+        lucide.createIcons();
+      } catch (err) {
+        console.error('Error fetching devices:', err);
+      }
+    }
+
+    // Initial load
+    fetchDevices();
+
+    // Auto refresh every 3 seconds
+    setInterval(fetchDevices, 3000);
+  </script>
+</body>
+</html>
