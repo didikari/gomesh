@@ -6,11 +6,14 @@ import (
 	"crypto/sha1"
 	"crypto/subtle"
 	"encoding/base32"
+	"encoding/base64"
 	"encoding/binary"
 	"fmt"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/skip2/go-qrcode"
 )
 
 // GenerateTOTPSecret creates a 20-byte random secret encoded in Base32 (no padding)
@@ -101,4 +104,13 @@ func GenerateOTPAuthURL(issuer, account, secret string) string {
 	params.Set("period", "30")
 
 	return fmt.Sprintf("otpauth://totp/%s?%s", label, params.Encode())
+}
+
+// GenerateQRCodePNG generates a PNG QR code for a given content string and returns it as a Base64 data URI
+func GenerateQRCodePNG(content string, size int) (string, error) {
+	png, err := qrcode.Encode(content, qrcode.Medium, size)
+	if err != nil {
+		return "", fmt.Errorf("failed generating qr code: %w", err)
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(png), nil
 }

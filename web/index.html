@@ -653,8 +653,12 @@
             Pindai QR Code menggunakan <strong>Google Authenticator</strong>, <strong>Authy</strong>, atau masukkan Secret Key secara manual:
           </p>
           
-          <div class="flex justify-center p-3 bg-white rounded-xl shadow-inner w-fit mx-auto border border-slate-300">
-            <img id="2fa-qr-img" src="" alt="2FA QR Code" class="w-44 h-44 object-contain" />
+          <div class="flex items-center justify-center p-3 bg-white rounded-xl shadow-inner w-52 h-52 mx-auto border border-slate-300 relative overflow-hidden">
+            <div id="2fa-qr-loading" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500 bg-white rounded-xl">
+              <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-amber-500"></i>
+              <span class="text-[10px] text-slate-400 mt-2 font-mono">Menyiapkan QR Code...</span>
+            </div>
+            <img id="2fa-qr-img" src="" alt="2FA QR Code" class="w-44 h-44 object-contain relative z-10 hidden" onload="document.getElementById('2fa-qr-loading')?.classList.add('hidden'); this.classList.remove('hidden');" />
           </div>
 
           <div class="space-y-1">
@@ -1106,13 +1110,20 @@
     }
 
     async function load2FASetup() {
+      const qrImg = document.getElementById('2fa-qr-img');
+      const qrLoading = document.getElementById('2fa-qr-loading');
+      if (qrImg) qrImg.classList.add('hidden');
+      if (qrLoading) qrLoading.classList.remove('hidden');
+
       try {
         const res = await fetch('/api/auth/2fa/setup', { method: 'POST' });
         const data = await res.json();
         if (res.ok && data.secret) {
           currentSetupSecret = data.secret;
           document.getElementById('2fa-secret-text').value = data.secret;
-          document.getElementById('2fa-qr-img').src = data.qr_url;
+          if (data.qr_url && qrImg) {
+            qrImg.src = data.qr_url;
+          }
         }
       } catch (err) {
         showToast('Gagal memuat konfigurasi 2FA', 'error');

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -51,5 +52,14 @@ func TestTOTPGenerationAndValidation(t *testing.T) {
 	otpURL := GenerateOTPAuthURL("GoMesh", "admin", secret)
 	if otpURL == "" {
 		t.Fatal("expected non-empty otpauth URL")
+	}
+
+	// 8. Offline QR Code Generation
+	qrDataURI, err := GenerateQRCodePNG(otpURL, 200)
+	if err != nil {
+		t.Fatalf("failed generating qr code png: %v", err)
+	}
+	if !strings.HasPrefix(qrDataURI, "data:image/png;base64,") {
+		t.Fatalf("expected data:image/png;base64 prefix, got: %s", qrDataURI)
 	}
 }

@@ -393,7 +393,7 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 		})
 	}))
 
-	// POST /api/auth/2fa/setup: Generates new TOTP secret & otpauth URL
+	// POST /api/auth/2fa/setup: Generates new TOTP secret, otpauth URL, and offline QR Code data URI
 	mux.HandleFunc("POST /api/auth/2fa/setup", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		sess, _ := auth.FromContext(r.Context())
 		secret, err := auth.GenerateTOTPSecret()
@@ -402,10 +402,16 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
 			return
 		}
 		otpURL := auth.GenerateOTPAuthURL("GoMesh", sess.Username, secret)
+		qrDataURI, err := auth.GenerateQRCodePNG(otpURL, 256)
+		if err != nil {
+			slog.Warn("failed generating qr code png", "error", err)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"secret":      secret,
 			"otpauth_url": otpURL,
+			"qr_url":      qrDataURI,
 		})
 	}))
 

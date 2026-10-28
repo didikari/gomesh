@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +93,10 @@ func TestTwoFactorAuthenticationFlow(t *testing.T) {
 	secret, ok := resp["secret"].(string)
 	if !ok || len(secret) == 0 {
 		t.Fatalf("expected non-empty secret in setup response")
+	}
+	qrURL, ok := resp["qr_url"].(string)
+	if !ok || !strings.HasPrefix(qrURL, "data:image/png;base64,") {
+		t.Fatalf("expected qr_url to be base64 data URI, got: %s", qrURL)
 	}
 
 	// 4. Try enabling 2FA with invalid code
