@@ -50,14 +50,15 @@ Goal: Penjelajahan direktori dan transfer file jarak jauh.
 Success criteria:
 - [x] Dapat melihat struktur file remote, men-download file log, dan mengunggah file uji coba tanpa korupsi stream (`PASS` pada `TestFileExplorerRPC`).
 
-### Phase 4 — Remote Desktop (Screen View & Input Injection)
+### Phase 4 — Remote Desktop (Screen View & Input Injection) [SELESAI]
 Goal: Menampilkan layar desktop komputer target dan kendali mouse/keyboard.
-- Screen capture loop di agen (kompresi frame JPEG).
-- HTML5 Canvas renderer di web dashboard.
-- Input event capture (mouse move, click, keystroke) dari browser diteruskan ke agen.
+- [x] Subsystem screen capture di agen dengan kompresi frame JPEG adaptif (`internal/agent/desktop/`).
+- [x] HTML5 Canvas renderer & event listener di web dashboard (`web/index.html`).
+- [x] Input event relay (mouse move, click, keystroke, wheel) dari browser ke agen (`internal/server/hub/`).
+- [x] Mode kontrol View-Only vs Interactive Control serta tombol fullscreen.
 Success criteria:
-- Layar remote tampil di canvas browser dengan update frame rate stabil (> 10-15 FPS di LAN).
-- Klik dan ketikan dari browser terefleksi di desktop target.
+- [x] Layar remote tampil di canvas browser dengan update frame rate stabil (> 10-15 FPS) (`PASS` pada `TestRemoteDesktopStream`).
+- [x] Input mouse & keyboard tersambung dan terefleksi ke komputer target.
 
 ### Phase 5 — Hardening, Auth RBAC & Production Readiness
 Goal: Pengamanan sistem dan deployment readiness.

@@ -58,6 +58,7 @@ func main() {
 		}
 		defer f.Close()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 		io.Copy(w, f)
 	})
 
@@ -83,6 +84,11 @@ func main() {
 	// WebSocket endpoint for Interactive Terminal (Technician Web Console)
 	mux.HandleFunc("GET /ws/terminal", func(w http.ResponseWriter, r *http.Request) {
 		h.HandleTerminalWS(w, r)
+	})
+
+	// WebSocket endpoint for Live Remote Desktop (Screen Capture & Input)
+	mux.HandleFunc("GET /ws/desktop", func(w http.ResponseWriter, r *http.Request) {
+		h.HandleDesktopWS(w, r)
 	})
 
 	// API: List remote files

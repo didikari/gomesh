@@ -26,6 +26,12 @@ const (
 	TypeFileUploadResp    = "file_upload_resp"
 	TypeFileActionReq     = "file_action_req"
 	TypeFileActionResp    = "file_action_resp"
+
+	// Desktop Live Screen & Input message types
+	TypeDesktopStart = "desktop_start"
+	TypeDesktopStop  = "desktop_stop"
+	TypeDesktopFrame = "desktop_frame"
+	TypeDesktopInput = "desktop_input"
 )
 
 // Envelope wraps all messages exchanged over WebSocket
@@ -171,6 +177,39 @@ type FileActionRespPayload struct {
 	RequestID string `json:"request_id"`
 	Success   bool   `json:"success"`
 	Error     string `json:"error,omitempty"`
+}
+
+// DesktopStartPayload requests starting a screen capture stream
+type DesktopStartPayload struct {
+	SessionID string `json:"session_id"`
+	Display   int    `json:"display"` // default 0
+	Quality   int    `json:"quality"` // 1 - 100 (default 65)
+	FPS       int    `json:"fps"`     // default 15
+}
+
+// DesktopStopPayload requests stopping a screen capture stream
+type DesktopStopPayload struct {
+	SessionID string `json:"session_id"`
+}
+
+// DesktopFramePayload carries a captured video/image frame
+type DesktopFramePayload struct {
+	SessionID string `json:"session_id"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	Format    string `json:"format"` // "jpeg"
+	Data      string `json:"data"`   // base64 encoded
+}
+
+// DesktopInputPayload carries mouse/keyboard interactions
+type DesktopInputPayload struct {
+	SessionID string  `json:"session_id"`
+	Event     string  `json:"event"` // "mousemove", "mousedown", "mouseup", "click", "keydown", "keyup", "wheel"
+	X         float64 `json:"x"`     // normalized 0.0 - 1.0 or pixel coordinate
+	Y         float64 `json:"y"`
+	Button    int     `json:"button"` // 0=left, 1=middle, 2=right
+	Key       string  `json:"key,omitempty"`
+	DeltaY    float64 `json:"delta_y,omitempty"`
 }
 
 // NewEnvelope creates a new envelope with the current unix millisecond timestamp

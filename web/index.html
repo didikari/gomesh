@@ -254,6 +254,49 @@
     </div>
   </div>
 
+  <!-- Remote Desktop Live Stream Modal -->
+  <div id="desktop-modal" class="fixed inset-0 z-50 bg-slate-950/90 backdrop-blur-md hidden flex flex-col p-3">
+    <!-- Desktop Header -->
+    <div class="px-4 py-2.5 bg-slate-900 border border-slate-800 rounded-t-xl flex items-center justify-between shadow-lg">
+      <div class="flex items-center gap-3">
+        <div class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+          <i data-lucide="layout" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold text-white flex items-center gap-2" id="desktop-title">Remote Desktop</h3>
+          <p class="text-[11px] text-slate-400 font-mono" id="desktop-metrics">Connecting stream...</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Control Mode Toggle -->
+        <button id="btn-control-mode" onclick="toggleDesktopControl()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-all">
+          <i data-lucide="mouse-pointer" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span id="control-mode-label">Control: View Only</span>
+        </button>
+
+        <!-- Fullscreen Button -->
+        <button onclick="toggleDesktopFullscreen()" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors" title="Fullscreen">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Close Button -->
+        <button onclick="closeDesktopModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Desktop Canvas Container -->
+    <div id="desktop-container" class="flex-1 bg-slate-950 border-x border-b border-slate-800 rounded-b-xl flex items-center justify-center overflow-hidden relative">
+      <div id="desktop-loading" class="flex flex-col items-center justify-center gap-3 text-slate-400 absolute">
+        <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-emerald-400"></i>
+        <p class="text-sm font-medium">Memulai streaming layar remote...</p>
+      </div>
+      <canvas id="desktop-canvas" class="max-w-full max-h-full object-contain cursor-default outline-none shadow-2xl" tabindex="0"></canvas>
+    </div>
+  </div>
+
   <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
     GoMesh • High Performance Remote Management • Built with Pure Go
   </footer>
@@ -265,6 +308,14 @@
 
     let activeFileDeviceID = null;
     let currentLoadedPath = '';
+
+    let activeDesktopWS = null;
+    let activeDesktopDeviceID = null;
+    let desktopControlEnabled = false;
+    let lastFrameTime = Date.now();
+    let frameCounter = 0;
+    let currentNativeWidth = 1920;
+    let currentNativeHeight = 1080;
 
     function getOSIcon(os) {
       os = (os || '').toLowerCase();
@@ -360,7 +411,7 @@
                     <button onclick="openTerminal('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium shadow-sm inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
                       <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Terminal
                     </button>
-                    <button class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1 ${!isOnline ? 'opacity-40 cursor-not-allowed' : ''}">
+                    <button onclick="openDesktop('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-emerald-300 border border-slate-700 inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
                       <i data-lucide="layout" class="w-3.5 h-3.5 text-emerald-400"></i> Desktop
                     </button>
                     <button onclick="openFiles('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 border border-slate-700 inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
@@ -401,6 +452,7 @@
         activeWS.close();
       }
 
+      // Initialize xterm
       activeTerm = new Terminal({
         theme: {
           background: '#0f172a',
@@ -659,6 +711,189 @@
       }
     }
 
+    // Remote Desktop Live Stream Controls
+    function openDesktop(deviceId, hostname) {
+      activeDesktopDeviceID = deviceId;
+      const modal = document.getElementById('desktop-modal');
+      const title = document.getElementById('desktop-title');
+      const loading = document.getElementById('desktop-loading');
+      const metrics = document.getElementById('desktop-metrics');
+      const canvas = document.getElementById('desktop-canvas');
+
+      modal.classList.remove('hidden');
+      title.innerText = `Remote Desktop — ${hostname}`;
+      loading.classList.remove('hidden');
+      metrics.innerText = 'Connecting live stream...';
+
+      if (activeDesktopWS) {
+        activeDesktopWS.close();
+      }
+
+      desktopControlEnabled = false;
+      updateControlUI();
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${proto}//${location.host}/ws/desktop?device_id=${deviceId}`;
+      activeDesktopWS = new WebSocket(wsUrl);
+
+      const ctx = canvas.getContext('2d');
+      let frameCount = 0;
+      let lastFpsCheck = Date.now();
+      let currentFPS = 0;
+
+      activeDesktopWS.onopen = () => {
+        metrics.innerText = 'Stream connected. Awaiting frame...';
+      };
+
+      activeDesktopWS.onmessage = (event) => {
+        try {
+          const frame = JSON.parse(event.data);
+          if (frame && frame.data) {
+            loading.classList.add('hidden');
+            const img = new Image();
+            img.onload = () => {
+              if (canvas.width !== frame.width || canvas.height !== frame.height) {
+                canvas.width = frame.width;
+                canvas.height = frame.height;
+                currentNativeWidth = frame.width;
+                currentNativeHeight = frame.height;
+              }
+              ctx.drawImage(img, 0, 0);
+
+              frameCount++;
+              const now = Date.now();
+              if (now - lastFpsCheck >= 1000) {
+                currentFPS = frameCount;
+                frameCount = 0;
+                lastFpsCheck = now;
+                metrics.innerText = `${frame.width}x${frame.height} • ${currentFPS} FPS • JPEG Stream`;
+              }
+            };
+            img.src = `data:image/jpeg;base64,${frame.data}`;
+          }
+        } catch (e) {
+          console.error('Frame decode error:', e);
+        }
+      };
+
+      activeDesktopWS.onclose = () => {
+        metrics.innerText = 'Stream disconnected';
+        loading.classList.remove('hidden');
+        loading.innerHTML = `<p class="text-rose-400 font-medium">Sesi Desktop Berakhir</p>`;
+      };
+
+      activeDesktopWS.onerror = (err) => {
+        metrics.innerText = 'Stream error';
+      };
+
+      // Mouse Input Dispatcher
+      let lastMoveSent = 0;
+      function sendInput(eventData) {
+        if (!desktopControlEnabled || !activeDesktopWS || activeDesktopWS.readyState !== WebSocket.OPEN) return;
+        activeDesktopWS.send(JSON.stringify(eventData));
+      }
+
+      function getCanvasCoordinates(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+          x: (e.clientX - rect.left) * scaleX,
+          y: (e.clientY - rect.top) * scaleY
+        };
+      }
+
+      canvas.onmousemove = (e) => {
+        const now = Date.now();
+        if (now - lastMoveSent > 50) { // throttle 20 mousemove/sec
+          lastMoveSent = now;
+          const pos = getCanvasCoordinates(e);
+          sendInput({ event: 'mousemove', x: pos.x, y: pos.y });
+        }
+      };
+
+      canvas.onmousedown = (e) => {
+        e.preventDefault();
+        const pos = getCanvasCoordinates(e);
+        sendInput({ event: 'mousedown', x: pos.x, y: pos.y, button: e.button });
+        canvas.focus();
+      };
+
+      canvas.onmouseup = (e) => {
+        e.preventDefault();
+        const pos = getCanvasCoordinates(e);
+        sendInput({ event: 'mouseup', x: pos.x, y: pos.y, button: e.button });
+      };
+
+      canvas.onclick = (e) => {
+        e.preventDefault();
+        const pos = getCanvasCoordinates(e);
+        sendInput({ event: 'click', x: pos.x, y: pos.y, button: e.button });
+      };
+
+      canvas.onwheel = (e) => {
+        e.preventDefault();
+        sendInput({ event: 'wheel', delta_y: e.deltaY });
+      };
+
+      canvas.onkeydown = (e) => {
+        if (!desktopControlEnabled) return;
+        e.preventDefault();
+        sendInput({ event: 'keydown', key: e.key });
+      };
+
+      canvas.onkeyup = (e) => {
+        if (!desktopControlEnabled) return;
+        e.preventDefault();
+        sendInput({ event: 'keyup', key: e.key });
+      };
+    }
+
+    function toggleDesktopControl() {
+      desktopControlEnabled = !desktopControlEnabled;
+      updateControlUI();
+    }
+
+    function updateControlUI() {
+      const btn = document.getElementById('btn-control-mode');
+      const label = document.getElementById('control-mode-label');
+      const canvas = document.getElementById('desktop-canvas');
+
+      if (desktopControlEnabled) {
+        btn.classList.remove('bg-slate-800', 'text-slate-200');
+        btn.classList.add('bg-emerald-600', 'text-white');
+        label.innerText = 'Control: Active (Interacting)';
+        canvas.classList.remove('cursor-default');
+        canvas.classList.add('cursor-crosshair');
+        canvas.focus();
+      } else {
+        btn.classList.remove('bg-emerald-600', 'text-white');
+        btn.classList.add('bg-slate-800', 'text-slate-200');
+        label.innerText = 'Control: View Only';
+        canvas.classList.remove('cursor-crosshair');
+        canvas.classList.add('cursor-default');
+      }
+    }
+
+    function toggleDesktopFullscreen() {
+      const container = document.getElementById('desktop-container');
+      if (!document.fullscreenElement) {
+        container.requestFullscreen().catch(err => alert(err.message));
+      } else {
+        document.exitFullscreen();
+      }
+    }
+
+    function closeDesktopModal() {
+      const modal = document.getElementById('desktop-modal');
+      modal.classList.add('hidden');
+      if (activeDesktopWS) {
+        activeDesktopWS.close();
+        activeDesktopWS = null;
+      }
+      activeDesktopDeviceID = null;
+    }
+
     // Auto resize terminal on window resize
     window.addEventListener('resize', () => {
       if (activeFitAddon && activeTerm && activeWS && activeWS.readyState === WebSocket.OPEN) {
@@ -680,6 +915,8 @@
         if (!termModal.classList.contains('hidden')) closeTerminal();
         const filesModal = document.getElementById('files-modal');
         if (!filesModal.classList.contains('hidden')) closeFilesModal();
+        const deskModal = document.getElementById('desktop-modal');
+        if (!deskModal.classList.contains('hidden') && !document.fullscreenElement) closeDesktopModal();
       }
     });
 

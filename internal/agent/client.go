@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"gomesh/internal/agent/desktop"
 	"gomesh/internal/agent/filemgr"
 	"gomesh/internal/agent/pty"
 	"gomesh/internal/protocol"
@@ -39,6 +40,8 @@ type Client struct {
 	mu          sync.Mutex
 	ptySessions map[string]pty.PTY
 	ptyMu       sync.Mutex
+	desktopStop chan struct{}
+	desktopMu   sync.Mutex
 }
 
 // NewClient initializes a client with persistent configuration
@@ -336,6 +339,23 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 				}(req)
 			}
 
+		case protocol.TypeDesktopStart:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.DesktopStartPayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				c.startDesktopStream(conn, payload)
+			}
+
+		case protocol.TypeDesktopStop:
+			c.stopDesktopStream()
+
+		case protocol.TypeDesktopInput:
+			raw, _ := json.Marshal(env.Payload)
+			var payload protocol.DesktopInputPayload
+			if err := json.Unmarshal(raw, &payload); err == nil {
+				_ = desktop.HandleInput(payload)
+			}
+
 		default:
 			slog.Info("received server command", "type", env.Type)
 		}
@@ -424,6 +444,68 @@ func (c *Client) closeAllPTY() {
 	for id, p := range c.ptySessions {
 		_ = p.Close()
 		delete(c.ptySessions, id)
+	}
+
+	c.stopDesktopStream()
+}
+
+func (c *Client) startDesktopStream(conn *websocket.Conn, payload protocol.DesktopStartPayload) {
+	c.desktopMu.Lock()
+	defer c.desktopMu.Unlock()
+
+	// Stop any existing desktop stream
+	if c.desktopStop != nil {
+		close(c.desktopStop)
+	}
+
+	stopChan := make(chan struct{})
+	c.desktopStop = stopChan
+
+	fps := payload.FPS
+	if fps <= 0 || fps > 30 {
+		fps = 15
+	}
+	interval := time.Duration(1000/fps) * time.Millisecond
+
+	quality := payload.Quality
+	if quality <= 0 || quality > 100 {
+		quality = 65
+	}
+
+	slog.Info("starting desktop live screen capture", "session_id", payload.SessionID, "fps", fps, "quality", quality)
+
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopChan:
+				return
+			case <-ticker.C:
+				frame, err := desktop.CaptureDisplay(payload.Display, quality)
+				if err != nil {
+					slog.Warn("desktop screen capture error", "error", err)
+					continue
+				}
+				frame.SessionID = payload.SessionID
+
+				env := protocol.NewEnvelope(protocol.TypeDesktopFrame, frame)
+				if err := c.sendEnvelope(conn, env); err != nil {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (c *Client) stopDesktopStream() {
+	c.desktopMu.Lock()
+	defer c.desktopMu.Unlock()
+	if c.desktopStop != nil {
+		close(c.desktopStop)
+		c.desktopStop = nil
+		slog.Info("desktop stream stopped")
 	}
 }
 

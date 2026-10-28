@@ -56,14 +56,25 @@ type TerminalSession struct {
 	closed      bool
 }
 
+// DesktopSession represents an active web browser remote desktop connection
+type DesktopSession struct {
+	SessionID   string
+	DeviceID    string
+	BrowserConn *websocket.Conn
+	writeMu     sync.Mutex
+	closed      bool
+}
+
 // Hub manages active agent and browser sessions
 type Hub struct {
 	store            *store.Store
 	agents           map[string]*AgentSession          // keyed by DeviceID
 	terminalSessions map[string]*TerminalSession       // keyed by SessionID
+	desktopSessions  map[string]*DesktopSession        // keyed by SessionID
 	pendingResponses map[string]chan protocol.Envelope // keyed by RequestID
 	mu               sync.RWMutex
 	termMu           sync.RWMutex
+	deskMu           sync.RWMutex
 	respMu           sync.RWMutex
 	ctx              context.Context
 	cancel           context.CancelFunc
@@ -76,6 +87,7 @@ func New(st *store.Store) *Hub {
 		store:            st,
 		agents:           make(map[string]*AgentSession),
 		terminalSessions: make(map[string]*TerminalSession),
+		desktopSessions:  make(map[string]*DesktopSession),
 		pendingResponses: make(map[string]chan protocol.Envelope),
 		ctx:              ctx,
 		cancel:           cancel,
@@ -107,6 +119,16 @@ func (h *Hub) Stop() {
 		t.writeMu.Unlock()
 	}
 	h.terminalSessions = make(map[string]*TerminalSession)
+
+	h.deskMu.Lock()
+	defer h.deskMu.Unlock()
+	for _, d := range h.desktopSessions {
+		d.writeMu.Lock()
+		d.closed = true
+		d.BrowserConn.Close()
+		d.writeMu.Unlock()
+	}
+	h.desktopSessions = make(map[string]*DesktopSession)
 }
 
 // reaperLoop periodically checks for stale connections
@@ -333,6 +355,23 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 
+		case protocol.TypeDesktopFrame:
+			raw, _ := json.Marshal(env.Payload)
+			var frame protocol.DesktopFramePayload
+			if err := json.Unmarshal(raw, &frame); err == nil {
+				h.deskMu.RLock()
+				deskSess, exists := h.desktopSessions[frame.SessionID]
+				h.deskMu.RUnlock()
+				if exists && deskSess != nil {
+					deskSess.writeMu.Lock()
+					if !deskSess.closed {
+						deskSess.BrowserConn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+						_ = deskSess.BrowserConn.WriteJSON(frame)
+					}
+					deskSess.writeMu.Unlock()
+				}
+			}
+
 		default:
 			slog.Debug("received message from agent", "type", env.Type, "device_id", dev.ID)
 		}
@@ -444,6 +483,87 @@ func (h *Hub) closeTerminalSession(sessionID string) {
 		term.writeMu.Unlock()
 		delete(h.terminalSessions, sessionID)
 		slog.Info("terminal session closed", "session_id", sessionID)
+	}
+}
+
+// HandleDesktopWS handles live remote desktop sessions from technician's browser
+func (h *Hub) HandleDesktopWS(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.URL.Query().Get("device_id")
+	if deviceID == "" {
+		http.Error(w, "missing device_id", http.StatusBadRequest)
+		return
+	}
+
+	h.mu.RLock()
+	agentSess, exists := h.agents[deviceID]
+	h.mu.RUnlock()
+
+	if !exists || agentSess == nil {
+		http.Error(w, "device is not currently online", http.StatusNotFound)
+		return
+	}
+
+	browserConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		slog.Error("desktop websocket upgrade failed", "error", err)
+		return
+	}
+	defer browserConn.Close()
+
+	sessionID := uuid.NewString()
+	deskSess := &DesktopSession{
+		SessionID:   sessionID,
+		DeviceID:    deviceID,
+		BrowserConn: browserConn,
+	}
+
+	h.deskMu.Lock()
+	h.desktopSessions[sessionID] = deskSess
+	h.deskMu.Unlock()
+
+	defer h.closeDesktopSession(sessionID)
+
+	slog.Info("opening live remote desktop session", "session_id", sessionID, "device_id", deviceID)
+
+	// Send DesktopStart to target agent
+	startEnv := protocol.NewEnvelope(protocol.TypeDesktopStart, protocol.DesktopStartPayload{
+		SessionID: sessionID,
+		Display:   0,
+		Quality:   65,
+		FPS:       15,
+	})
+	if err := agentSess.SendMessage(startEnv); err != nil {
+		slog.Error("failed sending desktop start to agent", "error", err)
+		return
+	}
+
+	// Read mouse/keyboard input from browser and forward to agent
+	for {
+		var input protocol.DesktopInputPayload
+		if err := browserConn.ReadJSON(&input); err != nil {
+			break
+		}
+		input.SessionID = sessionID
+		_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypeDesktopInput, input))
+	}
+
+	// Notify agent to stop desktop stream
+	_ = agentSess.SendMessage(protocol.NewEnvelope(protocol.TypeDesktopStop, protocol.DesktopStopPayload{
+		SessionID: sessionID,
+	}))
+}
+
+func (h *Hub) closeDesktopSession(sessionID string) {
+	h.deskMu.Lock()
+	defer h.deskMu.Unlock()
+
+	if desk, ok := h.desktopSessions[sessionID]; ok {
+		desk.writeMu.Lock()
+		desk.closed = true
+		_ = desk.BrowserConn.Close()
+		desk.writeMu.Unlock()
+		delete(h.desktopSessions, sessionID)
+		slog.Info("desktop session closed", "session_id", sessionID)
 	}
 }
 
