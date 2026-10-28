@@ -6,13 +6,17 @@ set -e
 #   curl -sSL http://<server-host>:8080/scripts/install-linux.sh | sudo bash -s -- -s ws://<server-host>:8080/ws/agent -t <token>
 
 SERVER_URL="ws://localhost:8080/ws/agent"
+ENDPOINTS=""
 TOKEN="default-token"
+GROUP="Default"
 INSTALL_DIR="/opt/gomesh"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -s|--server) SERVER_URL="$2"; shift ;;
+        -e|--endpoints) ENDPOINTS="$2"; shift ;;
         -t|--token) TOKEN="$2"; shift ;;
+        -g|--group) GROUP="$2"; shift ;;
         -d|--dir) INSTALL_DIR="$2"; shift ;;
         *) echo "Unknown parameter: $1"; exit 1 ;;
     esac
@@ -49,8 +53,15 @@ fi
 
 HTTP_BASE=$(echo "$SERVER_URL" | sed -e 's/^ws:\/\//http:\/\//' -e 's/^wss:\/\//https:\/\//' -e 's/\/ws\/agent$//')
 
+DL_PARAMS="token=${TOKEN}&group=${GROUP}"
+if [ -n "$ENDPOINTS" ]; then
+    DL_PARAMS="${DL_PARAMS}&endpoints=${ENDPOINTS}"
+else
+    DL_PARAMS="${DL_PARAMS}&server=${SERVER_URL}"
+fi
+
 echo "[*] Fetching agent binary from server ($HTTP_BASE/bin/$BIN_NAME)..."
-if curl -sSLf "$HTTP_BASE/bin/$BIN_NAME" -o "$INSTALL_DIR/gomesh-agent" 2>/dev/null; then
+if curl -sSLf "$HTTP_BASE/bin/$BIN_NAME?$DL_PARAMS" -o "$INSTALL_DIR/gomesh-agent" 2>/dev/null; then
     echo "[+] Agent binary downloaded successfully"
 elif [ -f "./bin/$BIN_NAME" ]; then
     echo "[*] Using local binary ./bin/$BIN_NAME"
@@ -66,6 +77,13 @@ if [ -f "$INSTALL_DIR/gomesh-agent" ]; then
     chmod 755 "$INSTALL_DIR/gomesh-agent"
 fi
 
+# Build arguments for systemd ExecStart
+EXEC_ARGS="-config $INSTALL_DIR"
+if [ -n "$SERVER_URL" ]; then EXEC_ARGS="$EXEC_ARGS -server $SERVER_URL"; fi
+if [ -n "$ENDPOINTS" ]; then EXEC_ARGS="$EXEC_ARGS -endpoints $ENDPOINTS"; fi
+if [ -n "$TOKEN" ]; then EXEC_ARGS="$EXEC_ARGS -token $TOKEN"; fi
+if [ -n "$GROUP" ]; then EXEC_ARGS="$EXEC_ARGS -group $GROUP"; fi
+
 # Write systemd service file
 SERVICE_PATH="/etc/systemd/system/gomesh-agent.service"
 echo "[*] Creating systemd service at $SERVICE_PATH..."
@@ -79,7 +97,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/gomesh-agent -server $SERVER_URL -token $TOKEN -config $INSTALL_DIR
+ExecStart=$INSTALL_DIR/gomesh-agent $EXEC_ARGS
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

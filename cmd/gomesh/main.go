@@ -8,13 +8,17 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"gomesh/internal/agent/embeddedcfg"
 	"gomesh/internal/server/auth"
 	"gomesh/internal/server/hub"
 	"gomesh/internal/server/store"
@@ -138,22 +142,53 @@ func buildServerMux(st *store.Store, sm *auth.SessionManager, h *hub.Hub) *http.
 		http.Error(w, "Script not found", http.StatusNotFound)
 	})
 
-	// Serves compiled agent binaries for direct installer downloads
-	mux.HandleFunc("GET /bin/{file}", func(w http.ResponseWriter, r *http.Request) {
-		file := filepath.Base(r.PathValue("file"))
-		binPath := findBinaryPath(file)
-		if binPath == "" {
-			slog.Warn("requested binary not found on server", "file", file)
-			http.Error(w, fmt.Sprintf("Binary %s not found on server", file), http.StatusNotFound)
-			return
+	// Helper to normalize any HTTP/HTTPS/WS/WSS address to a WebSocket URL
+	normalizeWS := func(raw string) string {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return ""
 		}
-		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file))
-		http.ServeFile(w, r, binPath)
-	})
+		if !strings.Contains(raw, "://") {
+			raw = "http://" + raw
+		}
+		u, err := url.Parse(raw)
+		if err != nil || u.Host == "" {
+			return ""
+		}
+		proto := "ws"
+		if u.Scheme == "https" || u.Scheme == "wss" {
+			proto = "wss"
+		}
+		path := u.Path
+		if path == "" || path == "/" {
+			path = "/ws/agent"
+		} else if !strings.HasSuffix(path, "/ws/agent") {
+			path = strings.TrimSuffix(path, "/") + "/ws/agent"
+		}
+		return fmt.Sprintf("%s://%s%s", proto, u.Host, path)
+	}
 
-	// Helper to extract host & protocol from request
+	// Helper to extract host & protocol from request, allowing explicit override via ?server= parameter
 	getServerEndpoints := func(r *http.Request) (string, string) {
+		customServer := strings.TrimSpace(r.URL.Query().Get("server"))
+		if customServer != "" {
+			if !strings.Contains(customServer, "://") {
+				customServer = "http://" + customServer
+			}
+			if u, err := url.Parse(customServer); err == nil && u.Host != "" {
+				proto := u.Scheme
+				if proto == "" {
+					proto = "http"
+				}
+				wsProto := "ws"
+				if proto == "https" || proto == "wss" {
+					proto = "https"
+					wsProto = "wss"
+				}
+				return fmt.Sprintf("%s://%s", proto, u.Host), fmt.Sprintf("%s://%s/ws/agent", wsProto, u.Host)
+			}
+		}
+
 		host := r.Host
 		proto := "http"
 		wsProto := "ws"
@@ -164,30 +199,173 @@ func buildServerMux(st *store.Store, sm *auth.SessionManager, h *hub.Hub) *http.
 		return fmt.Sprintf("%s://%s", proto, host), fmt.Sprintf("%s://%s/ws/agent", wsProto, host)
 	}
 
+	// Helper to resolve candidate endpoints for smart roaming (LAN first, then Public/Cloudflare)
+	resolveEndpoints := func(r *http.Request) ([]string, string) {
+		var list []string
+		seen := make(map[string]bool)
+		add := func(u string) {
+			norm := normalizeWS(u)
+			if norm != "" && !seen[norm] {
+				seen[norm] = true
+				list = append(list, norm)
+			}
+		}
+
+		if epParam := r.URL.Query().Get("endpoints"); epParam != "" {
+			for _, ep := range strings.Split(epParam, ",") {
+				add(ep)
+			}
+		}
+		if lanSrv := r.URL.Query().Get("lan_server"); lanSrv != "" {
+			add(lanSrv)
+		}
+		if pubSrv := r.URL.Query().Get("public_server"); pubSrv != "" {
+			add(pubSrv)
+		}
+
+		_, defWS := getServerEndpoints(r)
+		if len(list) == 0 {
+			add(defWS)
+		}
+
+		primary := defWS
+		if len(list) > 0 {
+			primary = list[0]
+		}
+		return list, primary
+	}
+
+	// GET /api/health: Lightweight health check for latency and Smart Roaming LAN prober
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ok",
+			"version": "0.1.0",
+			"time":    time.Now().Unix(),
+		})
+	})
+
+	// GET /api/server/network: Discovers local network interfaces for Smart Roaming LAN configuration
+	mux.HandleFunc("GET /api/server/network", func(w http.ResponseWriter, r *http.Request) {
+		var ips []string
+		var primary string
+		addrs, err := net.InterfaceAddrs()
+		if err == nil {
+			for _, a := range addrs {
+				if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+					if ip4 := ipnet.IP.To4(); ip4 != nil {
+						ipStr := ip4.String()
+						ips = append(ips, ipStr)
+						if primary == "" && ip4.IsPrivate() {
+							primary = ipStr
+						}
+					}
+				}
+			}
+		}
+		if primary == "" && len(ips) > 0 {
+			primary = ips[0]
+		}
+		if primary == "" {
+			primary = "127.0.0.1"
+		}
+
+		port := "8080"
+		if _, p, err := net.SplitHostPort(r.Host); err == nil && p != "" {
+			port = p
+		}
+
+		lanWS := fmt.Sprintf("ws://%s:%s/ws/agent", primary, port)
+		httpBase, wsURL := getServerEndpoints(r)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"primary_lan_ip": primary,
+			"lan_ips":        ips,
+			"port":           port,
+			"lan_ws":         lanWS,
+			"current_host":   r.Host,
+			"current_http":   httpBase,
+			"current_ws":     wsURL,
+		})
+	})
+
+	// Serves compiled agent binaries with dynamic configuration overlay embedding
+	mux.HandleFunc("GET /bin/{file}", func(w http.ResponseWriter, r *http.Request) {
+		file := filepath.Base(r.PathValue("file"))
+		binPath := findBinaryPath(file)
+		if binPath == "" {
+			slog.Warn("requested binary not found on server", "file", file)
+			http.Error(w, fmt.Sprintf("Binary %s not found on server", file), http.StatusNotFound)
+			return
+		}
+
+		token := r.URL.Query().Get("token")
+		group := r.URL.Query().Get("group")
+		endpoints, wsURL := resolveEndpoints(r)
+
+		// If this is an agent binary, bake in the server address, candidate endpoints, enrollment token, and group!
+		if strings.HasPrefix(file, "gomesh-agent") {
+			f, err := os.Open(binPath)
+			if err != nil {
+				http.Error(w, "failed opening binary", http.StatusInternalServerError)
+				return
+			}
+			defer f.Close()
+
+			cfg := embeddedcfg.AgentConfig{
+				Server:    wsURL,
+				Endpoints: endpoints,
+				Token:     token,
+				Group:     group,
+			}
+
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file))
+			if err := embeddedcfg.AppendConfigToBinary(f, w, cfg); err != nil {
+				slog.Error("failed streaming embedded config binary", "error", err)
+			}
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", file))
+		http.ServeFile(w, r, binPath)
+	})
+
 	// GET /api/download/installer/windows-bat: Direct download 1-click Windows .bat installer
 	mux.HandleFunc("GET /api/download/installer/windows-bat", func(w http.ResponseWriter, r *http.Request) {
-		httpBase, wsURL := getServerEndpoints(r)
+		httpBase, _ := getServerEndpoints(r)
+		endpoints, wsURL := resolveEndpoints(r)
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			token = "default-token"
 		}
+		group := r.URL.Query().Get("group")
+		if group == "" {
+			group = "Default"
+		}
+		epsStr := strings.Join(endpoints, ",")
+
 		batScript := fmt.Sprintf(`@echo off
 echo ========================================================
 echo     GoMesh Remote Agent Windows One-Click Installer    
 echo ========================================================
 echo Server URL : %s
-echo Token      : %s
+echo Endpoints  : %s
+echo Group      : %s
 echo.
-powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%s/scripts/install-windows.ps1' -OutFile install.ps1; .\install.ps1 -ServerUrl '%s' -Token '%s'"
+powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '%s/scripts/install-windows.ps1' -OutFile install.ps1; .\install.ps1 -ServerUrl '%s' -Endpoints '%s' -Token '%s' -Group '%s'"
 if %%ERRORLEVEL%% EQU 0 (
     echo.
-    echo [+] GoMesh Agent installed and service started successfully!
+    echo [+] GoMesh Agent installed and service started successfully in background!
 ) else (
     echo.
-    echo [!] Installation failed. Please ensure you ran this file as Administrator.
+    echo [!] Installation failed. Please ensure you right-clicked and ran as Administrator.
 )
 pause
-`, wsURL, token, httpBase, wsURL, token)
+`, wsURL, epsStr, group, httpBase, wsURL, epsStr, token, group)
 
 		w.Header().Set("Content-Type", "application/x-bat")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh.bat\"")
@@ -196,11 +374,18 @@ pause
 
 	// GET /api/download/installer/linux-sh: Direct download 1-click Linux installer
 	mux.HandleFunc("GET /api/download/installer/linux-sh", func(w http.ResponseWriter, r *http.Request) {
-		httpBase, wsURL := getServerEndpoints(r)
+		httpBase, _ := getServerEndpoints(r)
+		endpoints, wsURL := resolveEndpoints(r)
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			token = "default-token"
 		}
+		group := r.URL.Query().Get("group")
+		if group == "" {
+			group = "Default"
+		}
+		epsStr := strings.Join(endpoints, ",")
+
 		shScript := fmt.Sprintf(`#!/bin/bash
 # GoMesh Remote Agent Linux One-Click Installer
 set -e
@@ -213,8 +398,8 @@ fi
 echo "========================================================"
 echo "    GoMesh Remote Agent Linux One-Click Installer      "
 echo "========================================================"
-curl -sSL '%s/scripts/install-linux.sh' | bash -s -- -s '%s' -t '%s'
-`, httpBase, wsURL, token)
+curl -sSL '%s/scripts/install-linux.sh' | bash -s -- -s '%s' -e '%s' -t '%s' -g '%s'
+`, httpBase, wsURL, epsStr, token, group)
 
 		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh.sh\"")
@@ -223,11 +408,18 @@ curl -sSL '%s/scripts/install-linux.sh' | bash -s -- -s '%s' -t '%s'
 
 	// GET /api/download/installer/macos-sh: Direct download 1-click macOS installer
 	mux.HandleFunc("GET /api/download/installer/macos-sh", func(w http.ResponseWriter, r *http.Request) {
-		httpBase, wsURL := getServerEndpoints(r)
+		httpBase, _ := getServerEndpoints(r)
+		endpoints, wsURL := resolveEndpoints(r)
 		token := r.URL.Query().Get("token")
 		if token == "" {
 			token = "default-token"
 		}
+		group := r.URL.Query().Get("group")
+		if group == "" {
+			group = "Default"
+		}
+		epsStr := strings.Join(endpoints, ",")
+
 		shScript := fmt.Sprintf(`#!/bin/bash
 # GoMesh Remote Agent macOS One-Click Installer
 set -e
@@ -240,8 +432,8 @@ fi
 echo "========================================================"
 echo "    GoMesh Remote Agent macOS One-Click Installer      "
 echo "========================================================"
-curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -t '%s'
-`, httpBase, wsURL, token)
+curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -e '%s' -t '%s' -g '%s'
+`, httpBase, wsURL, epsStr, token, group)
 
 		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
 		w.Header().Set("Content-Disposition", "attachment; filename=\"install-gomesh-macos.sh\"")

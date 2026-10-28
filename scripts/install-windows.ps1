@@ -4,7 +4,9 @@
 
 param (
     [string]$ServerUrl = "ws://localhost:8080/ws/agent",
+    [string]$Endpoints = "",
     [string]$Token = "default-token",
+    [string]$Group = "Default",
     [string]$InstallDir = "C:\Program Files\GoMesh",
     [switch]$Uninstall
 )
@@ -45,7 +47,12 @@ $AgentPath = Join-Path $InstallDir $BinaryName
 
 # Derive HTTP URL for download
 $HttpBase = $ServerUrl -replace "^ws://", "http://" -replace "^wss://", "https://" -replace "/ws/agent$", ""
-$DownloadUrl = "$HttpBase/bin/$BinaryName"
+$DownloadUrl = "$HttpBase/bin/$BinaryName?token=$Token&group=$Group"
+if ($Endpoints -ne "") {
+    $DownloadUrl += "&endpoints=$Endpoints"
+} else {
+    $DownloadUrl += "&server=$ServerUrl"
+}
 
 Write-Host "[*] Downloading agent binary from $DownloadUrl..."
 try {
@@ -72,7 +79,19 @@ Start-Sleep -Seconds 1
 
 # Register Windows Service cleanly with sc.exe (Antivirus friendly, no packer)
 Write-Host "[*] Registering Windows Service ($ServiceName)..."
-$binPathArg = "`"$AgentPath`" -server `"$ServerUrl`" -token `"$Token`" -config `"$InstallDir`""
+$binPathArg = "`"$AgentPath`" -config `"$InstallDir`""
+if ($ServerUrl -ne "") {
+    $binPathArg += " -server `"$ServerUrl`""
+}
+if ($Endpoints -ne "") {
+    $binPathArg += " -endpoints `"$Endpoints`""
+}
+if ($Token -ne "") {
+    $binPathArg += " -token `"$Token`""
+}
+if ($Group -ne "") {
+    $binPathArg += " -group `"$Group`""
+}
 
 $createRes = sc.exe create $ServiceName binPath= $binPathArg start= auto DisplayName= $DisplayName
 if ($LASTEXITCODE -ne 0) {

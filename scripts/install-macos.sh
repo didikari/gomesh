@@ -6,14 +6,18 @@ set -e
 #   curl -sSL http://<server-host>:8080/scripts/install-macos.sh | sudo bash -s -- -s ws://<server-host>:8080/ws/agent -t <token>
 
 SERVER_URL="ws://localhost:8080/ws/agent"
+ENDPOINTS=""
 TOKEN="default-token"
+GROUP="Default"
 INSTALL_DIR="/usr/local/gomesh"
 PLIST_PATH="/Library/LaunchDaemons/com.gomesh.agent.plist"
 
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         -s|--server) SERVER_URL="$2"; shift ;;
+        -e|--endpoints) ENDPOINTS="$2"; shift ;;
         -t|--token) TOKEN="$2"; shift ;;
+        -g|--group) GROUP="$2"; shift ;;
         -d|--dir) INSTALL_DIR="$2"; shift ;;
         -u|--uninstall)
             echo "[*] Unloading and removing LaunchDaemon..."
@@ -43,8 +47,15 @@ mkdir -p "$INSTALL_DIR"
 
 HTTP_BASE=$(echo "$SERVER_URL" | sed -e 's/^ws:\/\//http:\/\//' -e 's/^wss:\/\//https:\/\//' -e 's/\/ws\/agent$//')
 
+DL_PARAMS="token=${TOKEN}&group=${GROUP}"
+if [ -n "$ENDPOINTS" ]; then
+    DL_PARAMS="${DL_PARAMS}&endpoints=${ENDPOINTS}"
+else
+    DL_PARAMS="${DL_PARAMS}&server=${SERVER_URL}"
+fi
+
 echo "[*] Fetching agent binary ($HTTP_BASE/bin/gomesh-agent)..."
-if curl -sSLf "$HTTP_BASE/bin/gomesh-agent" -o "$INSTALL_DIR/gomesh-agent" 2>/dev/null; then
+if curl -sSLf "$HTTP_BASE/bin/gomesh-agent?$DL_PARAMS" -o "$INSTALL_DIR/gomesh-agent" 2>/dev/null; then
     echo "[+] Agent binary downloaded successfully"
 elif [ -f "./bin/gomesh-agent" ]; then
     echo "[*] Using local binary ./bin/gomesh-agent"
@@ -60,6 +71,21 @@ fi
 # Stop existing daemon if loaded
 launchctl unload -w "$PLIST_PATH" 2>/dev/null || true
 
+# Prepare ProgramArguments XML items
+PROG_ARGS="        <string>$INSTALL_DIR/gomesh-agent</string>\n        <string>-config</string>\n        <string>$INSTALL_DIR</string>"
+if [ -n "$SERVER_URL" ]; then
+    PROG_ARGS="${PROG_ARGS}\n        <string>-server</string>\n        <string>$SERVER_URL</string>"
+fi
+if [ -n "$ENDPOINTS" ]; then
+    PROG_ARGS="${PROG_ARGS}\n        <string>-endpoints</string>\n        <string>$ENDPOINTS</string>"
+fi
+if [ -n "$TOKEN" ]; then
+    PROG_ARGS="${PROG_ARGS}\n        <string>-token</string>\n        <string>$TOKEN</string>"
+fi
+if [ -n "$GROUP" ]; then
+    PROG_ARGS="${PROG_ARGS}\n        <string>-group</string>\n        <string>$GROUP</string>"
+fi
+
 # Write LaunchDaemon plist
 cat <<EOF > "$PLIST_PATH"
 <?xml version="1.0" encoding="UTF-8"?>
@@ -70,13 +96,7 @@ cat <<EOF > "$PLIST_PATH"
     <string>com.gomesh.agent</string>
     <key>ProgramArguments</key>
     <array>
-        <string>$INSTALL_DIR/gomesh-agent</string>
-        <string>-server</string>
-        <string>$SERVER_URL</string>
-        <string>-token</string>
-        <string>$TOKEN</string>
-        <string>-config</string>
-        <string>$INSTALL_DIR</string>
+$(printf "$PROG_ARGS")
     </array>
     <key>RunAtLoad</key>
     <true/>
