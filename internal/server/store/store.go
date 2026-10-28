@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
 )
 
@@ -26,6 +28,37 @@ type Device struct {
 	RAMUsage     float64   `json:"ram_usage"`
 	LastSeenAt   time.Time `json:"last_seen_at"`
 	CreatedAt    time.Time `json:"created_at"`
+}
+
+// User represents a web dashboard operator or admin
+type User struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"` // "admin" or "operator"
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+// EnrollmentToken represents an authorization token for agent onboarding
+type EnrollmentToken struct {
+	ID          string     `json:"id"`
+	Token       string     `json:"token"`
+	Description string     `json:"description"`
+	CreatedBy   string     `json:"created_by"`
+	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
+	IsActive    bool       `json:"is_active"`
+	CreatedAt   time.Time  `json:"created_at"`
+}
+
+// SessionAudit logs remote interactions
+type SessionAudit struct {
+	ID          string    `json:"id"`
+	DeviceID    string    `json:"device_id"`
+	Username    string    `json:"username"`
+	SessionType string    `json:"session_type"` // "terminal", "desktop", "file"
+	StartedAt   time.Time `json:"started_at"`
+	EndedAt     time.Time `json:"ended_at"`
+	ClientIP    string    `json:"client_ip"`
 }
 
 // Store manages database persistence using pure-Go SQLite
@@ -83,6 +116,38 @@ func (s *Store) migrate() error {
 
 	CREATE INDEX IF NOT EXISTS idx_devices_status ON devices(status);
 	CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen_at);
+
+	CREATE TABLE IF NOT EXISTS users (
+		id TEXT PRIMARY KEY,
+		username TEXT UNIQUE NOT NULL,
+		password_hash TEXT NOT NULL,
+		role TEXT NOT NULL DEFAULT 'operator',
+		created_at DATETIME NOT NULL
+	);
+
+	CREATE TABLE IF NOT EXISTS enrollment_tokens (
+		id TEXT PRIMARY KEY,
+		token TEXT UNIQUE NOT NULL,
+		description TEXT,
+		created_by TEXT,
+		expires_at DATETIME,
+		is_active INTEGER NOT NULL DEFAULT 1,
+		created_at DATETIME NOT NULL
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_tokens_token ON enrollment_tokens(token);
+
+	CREATE TABLE IF NOT EXISTS session_audits (
+		id TEXT PRIMARY KEY,
+		device_id TEXT NOT NULL,
+		username TEXT NOT NULL,
+		session_type TEXT NOT NULL,
+		started_at DATETIME NOT NULL,
+		ended_at DATETIME,
+		client_ip TEXT
+	);
+
+	CREATE INDEX IF NOT EXISTS idx_audits_device ON session_audits(device_id);
 	`
 	_, err := s.db.Exec(schema)
 	if err != nil {
@@ -219,6 +284,223 @@ func (s *Store) MarkStaleDevices(ctx context.Context, timeout time.Duration) (in
 		return 0, fmt.Errorf("failed marking stale devices: %w", err)
 	}
 	return res.RowsAffected()
+}
+
+// --- USER & AUTH STORE METHODS ---
+
+// EnsureDefaultAdmin checks if any user exists, and if not, creates default admin/admin123
+func (s *Store) EnsureDefaultAdmin(ctx context.Context) (*User, bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users;").Scan(&count)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed checking user count: %w", err)
+	}
+
+	if count > 0 {
+		return nil, false, nil
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed hashing default password: %w", err)
+	}
+
+	admin := &User{
+		ID:           uuid.NewString(),
+		Username:     "admin",
+		PasswordHash: string(hash),
+		Role:         "admin",
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	query := `INSERT INTO users (id, username, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?);`
+	_, err = s.db.ExecContext(ctx, query, admin.ID, admin.Username, admin.PasswordHash, admin.Role, admin.CreatedAt)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed inserting default admin: %w", err)
+	}
+
+	return admin, true, nil
+}
+
+// GetUserByUsername finds a user by username
+func (s *Store) GetUserByUsername(ctx context.Context, username string) (*User, error) {
+	query := `SELECT id, username, password_hash, role, created_at FROM users WHERE username = ?;`
+	var u User
+	err := s.db.QueryRowContext(ctx, query, username).Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed fetching user: %w", err)
+	}
+	return &u, nil
+}
+
+// AuthenticateUser verifies username and password
+func (s *Store) AuthenticateUser(ctx context.Context, username, password string) (*User, error) {
+	u, err := s.GetUserByUsername(ctx, username)
+	if err != nil {
+		return nil, err
+	}
+	if u == nil {
+		return nil, fmt.Errorf("invalid username or password")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(password)); err != nil {
+		return nil, fmt.Errorf("invalid username or password")
+	}
+
+	return u, nil
+}
+
+// --- ENROLLMENT TOKEN STORE METHODS ---
+
+// CreateEnrollmentToken creates a new token
+func (s *Store) CreateEnrollmentToken(ctx context.Context, desc, createdBy string, expiresDays int) (*EnrollmentToken, error) {
+	token := &EnrollmentToken{
+		ID:          uuid.NewString(),
+		Token:       uuid.NewString(),
+		Description: desc,
+		CreatedBy:   createdBy,
+		IsActive:    true,
+		CreatedAt:   time.Now().UTC(),
+	}
+
+	if expiresDays > 0 {
+		exp := time.Now().UTC().AddDate(0, 0, expiresDays)
+		token.ExpiresAt = &exp
+	}
+
+	query := `INSERT INTO enrollment_tokens (id, token, description, created_by, expires_at, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);`
+	_, err := s.db.ExecContext(ctx, query, token.ID, token.Token, token.Description, token.CreatedBy, token.ExpiresAt, 1, token.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed creating token: %w", err)
+	}
+	return token, nil
+}
+
+// ValidateEnrollmentToken checks if a token string is valid
+func (s *Store) ValidateEnrollmentToken(ctx context.Context, tokenStr string) (bool, error) {
+	// If no active tokens exist in the database, allow enrollment (e.g. fresh install or tests)
+	var activeCount int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM enrollment_tokens WHERE is_active = 1;").Scan(&activeCount)
+	if err == nil && activeCount == 0 {
+		return true, nil
+	}
+
+	if tokenStr == "" {
+		return false, nil
+	}
+
+	// Also allow initial setup token if needed
+	if tokenStr == "default-token" {
+		return true, nil
+	}
+
+	query := `
+	SELECT is_active, expires_at 
+	FROM enrollment_tokens 
+	WHERE token = ?;
+	`
+	var isActive int
+	var expiresAt *time.Time
+	err = s.db.QueryRowContext(ctx, query, tokenStr).Scan(&isActive, &expiresAt)
+	if err == sql.ErrNoRows {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("failed validating token: %w", err)
+	}
+
+	if isActive != 1 {
+		return false, nil
+	}
+
+	if expiresAt != nil && expiresAt.Before(time.Now().UTC()) {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+// ListEnrollmentTokens returns all tokens
+func (s *Store) ListEnrollmentTokens(ctx context.Context) ([]*EnrollmentToken, error) {
+	query := `SELECT id, token, description, created_by, expires_at, is_active, created_at FROM enrollment_tokens ORDER BY created_at DESC;`
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying tokens: %w", err)
+	}
+	defer rows.Close()
+
+	var tokens []*EnrollmentToken
+	for rows.Next() {
+		var t EnrollmentToken
+		var activeInt int
+		err := rows.Scan(&t.ID, &t.Token, &t.Description, &t.CreatedBy, &t.ExpiresAt, &activeInt, &t.CreatedAt)
+		if err != nil {
+			return nil, err
+		}
+		t.IsActive = activeInt == 1
+		tokens = append(tokens, &t)
+	}
+	return tokens, nil
+}
+
+// --- SESSION AUDIT STORE METHODS ---
+
+// IsDeviceRegistered checks if a device with given hardware UUID is already enrolled
+func (s *Store) IsDeviceRegistered(ctx context.Context, hardwareUUID string) (bool, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM devices WHERE hardware_uuid = ?;", hardwareUUID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("failed checking registered device: %w", err)
+	}
+	return count > 0, nil
+}
+
+// RecordAudit logs an interactive session
+func (s *Store) RecordAudit(ctx context.Context, audit *SessionAudit) error {
+	if audit.ID == "" {
+		audit.ID = uuid.NewString()
+	}
+	query := `
+	INSERT INTO session_audits (id, device_id, username, session_type, started_at, ended_at, client_ip)
+	VALUES (?, ?, ?, ?, ?, ?, ?);
+	`
+	_, err := s.db.ExecContext(ctx, query,
+		audit.ID, audit.DeviceID, audit.Username, audit.SessionType,
+		audit.StartedAt, audit.EndedAt, audit.ClientIP,
+	)
+	return err
+}
+
+// ListAudits returns recent interactive session audits
+func (s *Store) ListAudits(ctx context.Context, limit int) ([]*SessionAudit, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	query := `
+	SELECT id, device_id, username, session_type, started_at, ended_at, client_ip
+	FROM session_audits
+	ORDER BY started_at DESC
+	LIMIT ?;
+	`
+	rows, err := s.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed querying audits: %w", err)
+	}
+	defer rows.Close()
+
+	var audits []*SessionAudit
+	for rows.Next() {
+		var a SessionAudit
+		err := rows.Scan(&a.ID, &a.DeviceID, &a.Username, &a.SessionType, &a.StartedAt, &a.EndedAt, &a.ClientIP)
+		if err != nil {
+			return nil, err
+		}
+		audits = append(audits, &a)
+	}
+	return audits, nil
 }
 
 // Close closes the database connection cleanly

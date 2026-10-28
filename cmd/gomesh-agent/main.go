@@ -13,6 +13,7 @@ import (
 
 func main() {
 	serverURL := flag.String("server", "ws://localhost:8080/ws/agent", "GoMesh Central Server WebSocket URL")
+	token := flag.String("token", "", "GoMesh Enrollment Token")
 	configDir := flag.String("config", ".", "Path to store agent persistent identity")
 	flag.Parse()
 
@@ -25,6 +26,10 @@ func main() {
 	if err != nil {
 		slog.Error("failed to create agent client", "error", err)
 		os.Exit(1)
+	}
+
+	if *token != "" {
+		client.SetAuthToken(*token)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

@@ -4,6 +4,8 @@
 # Binaries & build artifacts
 bin/
 dist/
+gomesh
+gomesh-agent
 *.exe
 *.exe~
 *.dll
@@ -21,6 +23,7 @@ data/
 *.db-wal
 *.db-shm
 *.log
+gomesh-agent.json
 
 # OS & IDE metadata
 .DS_Store

@@ -83,6 +83,16 @@ func NewClient(serverURL string, configDir string) (*Client, error) {
 	}, nil
 }
 
+// SetAuthToken configures the enrollment or authentication token
+func (c *Client) SetAuthToken(token string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cfg.AuthToken = token
+	if b, err := json.MarshalIndent(c.cfg, "", "  "); err == nil {
+		_ = os.WriteFile(c.cfgPath, b, 0644)
+	}
+}
+
 // Run starts the persistent outbound agent loop
 func (c *Client) Run(ctx context.Context) error {
 	backoff := 1 * time.Second

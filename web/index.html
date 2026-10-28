@@ -28,120 +28,322 @@
 </head>
 <body class="min-h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
 
-  <!-- Top Navbar -->
-  <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-      <div class="flex items-center gap-3">
-        <div class="h-9 w-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 text-white font-black text-xl tracking-wider">
+  <!-- LOGIN SCREEN (Shown if not authenticated) -->
+  <div id="login-screen" class="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center p-4">
+    <div class="w-full max-w-md bg-slate-900/90 border border-slate-800 rounded-2xl p-8 shadow-2xl backdrop-blur-md">
+      <div class="flex items-center justify-center mb-6">
+        <div class="h-12 w-12 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/40 text-white font-black text-2xl tracking-wider">
           M
         </div>
-        <div>
-          <span class="font-bold text-lg tracking-tight text-white flex items-center gap-2">
-            GoMesh <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">v0.1.0</span>
-          </span>
-          <p class="text-xs text-slate-400">Open-Source Remote Device Management</p>
-        </div>
+      </div>
+      <div class="text-center mb-6">
+        <h2 class="text-xl font-bold text-white tracking-tight">GoMesh Central Console</h2>
+        <p class="text-xs text-slate-400 mt-1">Masuk untuk mengelola perangkat dan sesi remote</p>
       </div>
 
-      <div class="flex items-center gap-4">
-        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs">
-          <span class="h-2 w-2 rounded-full bg-emerald-400 pulse-dot"></span>
-          <span class="text-slate-300">Relay Server Active</span>
+      <div id="login-error" class="hidden mb-4 p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+        <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+        <span id="login-error-msg">Username atau password salah</span>
+      </div>
+
+      <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Username</label>
+          <input type="text" id="login-username" required value="admin" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
         </div>
-        <button onclick="fetchDevices()" class="flex items-center gap-1.5 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-1.5 rounded-lg transition-colors border border-slate-700">
-          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Password</label>
+          <input type="password" id="login-password" required value="admin123" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+        <button type="submit" id="login-submit-btn" class="w-full mt-2 py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2">
+          <span>Masuk ke Console</span>
         </button>
+      </form>
+
+      <div class="mt-6 pt-4 border-t border-slate-800/80 text-center">
+        <p class="text-[11px] text-slate-500 font-mono">Kredensial bawaan: <span class="text-slate-400 font-semibold">admin</span> / <span class="text-slate-400 font-semibold">admin123</span></p>
       </div>
     </div>
-  </header>
+  </div>
 
-  <!-- Main Content -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-    
-    <!-- Stats Overview -->
-    <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+  <!-- MAIN APP CONTAINER -->
+  <div id="app-container" class="flex-1 flex flex-col hidden">
+    <!-- Top Navbar -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="h-9 w-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 text-white font-black text-xl tracking-wider">
+            M
+          </div>
+          <div>
+            <span class="font-bold text-lg tracking-tight text-white flex items-center gap-2">
+              GoMesh <span class="text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium">v0.1.0</span>
+            </span>
+            <p class="text-xs text-slate-400">Open-Source Remote Device Management</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <button onclick="openInstallModal()" class="flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg shadow-sm transition-colors">
+            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Add Device
+          </button>
+
+          <button onclick="openAuditsModal()" class="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg border border-slate-800 transition-colors">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-indigo-400"></i> Audit Logs
+          </button>
+
+          <button onclick="fetchDevices()" class="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 px-3 py-1.5 rounded-lg transition-colors border border-slate-800">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i> Refresh
+          </button>
+
+          <!-- User Menu -->
+          <div class="flex items-center gap-2 pl-2 border-l border-slate-800">
+            <div class="text-right">
+              <span id="nav-username" class="text-xs font-semibold text-white block">admin</span>
+              <span id="nav-role" class="text-[10px] text-slate-400 font-mono uppercase block">Admin</span>
+            </div>
+            <button onclick="handleLogout()" class="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors" title="Logout">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      
+      <!-- Stats Overview -->
+      <section class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Managed Nodes</p>
+            <h3 id="stat-total" class="text-2xl font-bold text-white mt-1">0</h3>
+          </div>
+          <div class="p-3 rounded-lg bg-slate-800/80 text-indigo-400">
+            <i data-lucide="server" class="w-6 h-6"></i>
+          </div>
+        </div>
+
+        <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Online & Connected</p>
+            <h3 id="stat-online" class="text-2xl font-bold text-emerald-400 mt-1">0</h3>
+          </div>
+          <div class="p-3 rounded-lg bg-emerald-950/30 text-emerald-400 border border-emerald-500/20">
+            <i data-lucide="radio" class="w-6 h-6"></i>
+          </div>
+        </div>
+
+        <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div>
+            <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Offline / Disconnected</p>
+            <h3 id="stat-offline" class="text-2xl font-bold text-slate-400 mt-1">0</h3>
+          </div>
+          <div class="p-3 rounded-lg bg-slate-800/80 text-slate-400">
+            <i data-lucide="power-off" class="w-6 h-6"></i>
+          </div>
+        </div>
+      </section>
+
+      <!-- Device List Table -->
+      <section class="space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-lg font-bold text-white flex items-center gap-2">
+            <i data-lucide="monitor" class="w-5 h-5 text-indigo-400"></i> Managed Devices
+          </h2>
+          <span class="text-xs text-slate-400" id="sync-timer">Auto-sync: 3s</span>
+        </div>
+
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 text-slate-400 uppercase text-xs border-b border-slate-800 font-semibold tracking-wider">
+                <tr>
+                  <th class="py-3.5 px-4">Status</th>
+                  <th class="py-3.5 px-4">Hostname & OS</th>
+                  <th class="py-3.5 px-4">Architecture</th>
+                  <th class="py-3.5 px-4">Network IP</th>
+                  <th class="py-3.5 px-4">Telemetry (CPU / RAM)</th>
+                  <th class="py-3.5 px-4">Last Seen</th>
+                  <th class="py-3.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="device-tbody" class="divide-y divide-slate-800/60">
+                <tr>
+                  <td colspan="7" class="py-12 text-center text-slate-500">
+                    <div class="flex flex-col items-center justify-center gap-2">
+                      <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-indigo-400"></i>
+                      <p>Memuat daftar perangkat...</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Connect Banner -->
+      <section class="bg-slate-950/40 border border-slate-800 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Total Managed Nodes</p>
-          <h3 id="stat-total" class="text-2xl font-bold text-white mt-1">0</h3>
+          <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Ingin menambahkan komputer baru ke GoMesh?
+          </h3>
+          <p class="text-xs text-slate-400 mt-1">Daftarkan komputer remote (Linux, Windows, atau macOS) dengan satu baris perintah instalasi otomatis.</p>
         </div>
-        <div class="p-3 rounded-lg bg-slate-800/80 text-indigo-400">
-          <i data-lucide="server" class="w-6 h-6"></i>
+        <button onclick="openInstallModal()" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white whitespace-nowrap shadow-sm transition-colors">
+          Buka Petunjuk Instalasi
+        </button>
+      </section>
+
+    </main>
+
+    <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+      GoMesh • High Performance Remote Management • Built with Pure Go
+    </footer>
+  </div>
+
+  <!-- ADD DEVICE & ENROLLMENT MODAL -->
+  <div id="install-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-indigo-600/10 text-indigo-400 border border-indigo-500/20">
+            <i data-lucide="plus-circle" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Tambahkan Komputer Target (Agent)</h3>
+            <p class="text-xs text-slate-400">Pilih sistem operasi komputer target untuk melihat perintah instalasi instan</p>
+          </div>
         </div>
+        <button onclick="closeInstallModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
       </div>
 
-      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+      <!-- Modal Body -->
+      <div class="p-6 space-y-6">
+        <!-- Token Selector -->
+        <div class="p-4 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Active Enrollment Token</label>
+            <div id="token-display" class="font-mono text-sm text-indigo-300 font-semibold">default-token</div>
+          </div>
+          <button onclick="generateNewToken()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-colors">
+            <i data-lucide="key" class="w-3.5 h-3.5"></i> Buat Token Baru
+          </button>
+        </div>
+
+        <!-- OS Tabs -->
         <div>
-          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Online & Connected</p>
-          <h3 id="stat-online" class="text-2xl font-bold text-emerald-400 mt-1">0</h3>
+          <div class="flex border-b border-slate-800 gap-2">
+            <button onclick="selectInstallTab('linux')" id="tab-btn-linux" class="px-4 py-2.5 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 inline-flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4"></i> Linux (systemd)
+            </button>
+            <button onclick="selectInstallTab('windows')" id="tab-btn-windows" class="px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 inline-flex items-center gap-2">
+              <i data-lucide="app-window" class="w-4 h-4"></i> Windows (Service)
+            </button>
+            <button onclick="selectInstallTab('macos')" id="tab-btn-macos" class="px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 inline-flex items-center gap-2">
+              <i data-lucide="apple" class="w-4 h-4"></i> macOS (LaunchDaemon)
+            </button>
+          </div>
+
+          <!-- Linux Tab Content -->
+          <div id="tab-content-linux" class="mt-4 space-y-3">
+            <p class="text-xs text-slate-400">Jalankan perintah ini di terminal server / komputer target Linux (Ubuntu, Debian, CentOS, RHEL):</p>
+            <div class="relative bg-slate-950 rounded-xl p-3.5 border border-slate-800 font-mono text-xs text-indigo-300 break-all pr-20">
+              <code id="cmd-linux">curl -sSL http://localhost:8080/scripts/install-linux.sh | sudo bash -s -- -s ws://localhost:8080/ws/agent -t default-token</code>
+              <button onclick="copyCmd('cmd-linux')" class="absolute right-3 top-3 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Script otomatis mengunduh binary, mendaftarkan service systemd, dan menjalankan agen di background.</p>
+          </div>
+
+          <!-- Windows Tab Content -->
+          <div id="tab-content-windows" class="mt-4 space-y-3 hidden">
+            <p class="text-xs text-slate-400">Jalankan di <b>PowerShell Administrator</b> pada komputer Windows target:</p>
+            <div class="relative bg-slate-950 rounded-xl p-3.5 border border-slate-800 font-mono text-xs text-sky-300 break-all pr-20">
+              <code id="cmd-windows">powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri http://localhost:8080/scripts/install-windows.ps1 -OutFile install.ps1; .\install.ps1 -ServerUrl ws://localhost:8080/ws/agent -Token default-token"</code>
+              <button onclick="copyCmd('cmd-windows')" class="absolute right-3 top-3 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Menggunakan Windows Service API resmi (sc.exe) tanpa UPX packer sehingga aman dari false-positive antivirus.</p>
+          </div>
+
+          <!-- macOS Tab Content -->
+          <div id="tab-content-macos" class="mt-4 space-y-3 hidden">
+            <p class="text-xs text-slate-400">Jalankan di Terminal macOS target:</p>
+            <div class="relative bg-slate-950 rounded-xl p-3.5 border border-slate-800 font-mono text-xs text-amber-300 break-all pr-20">
+              <code id="cmd-macos">curl -sSL http://localhost:8080/scripts/install-macos.sh | sudo bash -s -- -s ws://localhost:8080/ws/agent -t default-token</code>
+              <button onclick="copyCmd('cmd-macos')" class="absolute right-3 top-3 px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-sans flex items-center gap-1">
+                <i data-lucide="copy" class="w-3 h-3"></i> Copy
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Mendaftarkan LaunchDaemon sistem di /Library/LaunchDaemons/com.gomesh.agent.plist.</p>
+          </div>
         </div>
-        <div class="p-3 rounded-lg bg-emerald-950/30 text-emerald-400 border border-emerald-500/20">
-          <i data-lucide="radio" class="w-6 h-6"></i>
+
+        <!-- Direct Binaries -->
+        <div class="pt-4 border-t border-slate-800/80">
+          <p class="text-xs font-semibold text-slate-400 mb-2">Download Standalone Binaries Langsung:</p>
+          <div class="flex flex-wrap gap-2">
+            <a href="/bin/gomesh-agent-linux" download class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-colors">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Linux (gomesh-agent-linux)
+            </a>
+            <a href="/bin/gomesh-agent.exe" download class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-colors">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Windows (gomesh-agent.exe)
+            </a>
+            <a href="/bin/gomesh-agent" download class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-colors">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> macOS (gomesh-agent)
+            </a>
+          </div>
         </div>
       </div>
+    </div>
+  </div>
 
-      <div class="p-5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
-        <div>
-          <p class="text-xs font-medium text-slate-400 uppercase tracking-wider">Offline / Disconnected</p>
-          <h3 id="stat-offline" class="text-2xl font-bold text-slate-400 mt-1">0</h3>
+  <!-- AUDIT LOGS MODAL -->
+  <div id="audits-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-4xl h-[75vh] flex flex-col overflow-hidden">
+      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Audit Log Interaksi Remote</h3>
+            <p class="text-xs text-slate-400">Catatan riwayat pembukaan terminal, desktop streaming, dan akses teknisi</p>
+          </div>
         </div>
-        <div class="p-3 rounded-lg bg-slate-800/80 text-slate-400">
-          <i data-lucide="power-off" class="w-6 h-6"></i>
-        </div>
-      </div>
-    </section>
-
-    <!-- Device List Table -->
-    <section class="space-y-4">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-bold text-white flex items-center gap-2">
-          <i data-lucide="monitor" class="w-5 h-5 text-indigo-400"></i> Managed Devices
-        </h2>
-        <span class="text-xs text-slate-400" id="sync-timer">Auto-sync: 3s</span>
+        <button onclick="closeAuditsModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
       </div>
 
-      <div class="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <thead class="bg-slate-900/80 text-slate-400 uppercase text-xs border-b border-slate-800 font-semibold tracking-wider">
-              <tr>
-                <th class="py-3.5 px-4">Status</th>
-                <th class="py-3.5 px-4">Hostname & OS</th>
-                <th class="py-3.5 px-4">Architecture</th>
-                <th class="py-3.5 px-4">Network IP</th>
-                <th class="py-3.5 px-4">Telemetry (CPU / RAM)</th>
-                <th class="py-3.5 px-4">Last Seen</th>
-                <th class="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="device-tbody" class="divide-y divide-slate-800/60">
-              <tr>
-                <td colspan="7" class="py-12 text-center text-slate-500">
-                  <div class="flex flex-col items-center justify-center gap-2">
-                    <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-indigo-400"></i>
-                    <p>Memuat daftar perangkat...</p>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+      <div class="flex-1 overflow-y-auto p-4">
+        <table class="w-full text-left text-xs">
+          <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 font-semibold bg-slate-950/40">
+            <tr>
+              <th class="py-2.5 px-3">Session Type</th>
+              <th class="py-2.5 px-3">Operator</th>
+              <th class="py-2.5 px-3">Device ID</th>
+              <th class="py-2.5 px-3">Started</th>
+              <th class="py-2.5 px-3">Client IP</th>
+            </tr>
+          </thead>
+          <tbody id="audits-tbody" class="divide-y divide-slate-800/40">
+            <tr>
+              <td colspan="5" class="py-12 text-center text-slate-500">Memuat audit log...</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-    </section>
-
-    <!-- Installation Helper -->
-    <section class="bg-slate-950/40 border border-dashed border-slate-800 rounded-xl p-6">
-      <h3 class="text-sm font-semibold text-slate-300 flex items-center gap-2">
-        <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Cara Menghubungkan Agent Baru:
-      </h3>
-      <p class="text-xs text-slate-400 mt-1">Jalankan binary agen di komputer target (bisa di jaringan lokal maupun internet publik):</p>
-      <div class="mt-3 p-3 bg-slate-900 rounded-lg border border-slate-800 font-mono text-xs text-indigo-300 flex items-center justify-between overflow-x-auto">
-        <code>./gomesh-agent -server ws://localhost:8080/ws/agent</code>
-        <button onclick="navigator.clipboard.writeText('./gomesh-agent -server ws://localhost:8080/ws/agent')" class="ml-4 text-slate-400 hover:text-white text-xs px-2 py-1 rounded bg-slate-800">Copy</button>
-      </div>
-    </section>
-
-  </main>
+    </div>
+  </div>
 
   <!-- Interactive Terminal Modal -->
   <div id="terminal-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
@@ -297,11 +499,10 @@
     </div>
   </div>
 
-  <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
-    GoMesh • High Performance Remote Management • Built with Pure Go
-  </footer>
-
   <script>
+    let currentUser = null;
+    let activeToken = 'default-token';
+
     let activeTerm = null;
     let activeFitAddon = null;
     let activeWS = null;
@@ -317,6 +518,199 @@
     let currentNativeWidth = 1920;
     let currentNativeHeight = 1080;
 
+    // --- AUTHENTICATION ---
+    async function checkAuth() {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (data.authenticated && data.user) {
+          currentUser = data.user;
+          document.getElementById('login-screen').classList.add('hidden');
+          document.getElementById('app-container').classList.remove('hidden');
+          document.getElementById('nav-username').innerText = currentUser.username;
+          document.getElementById('nav-role').innerText = currentUser.role;
+          lucide.createIcons();
+          fetchDevices();
+          loadActiveToken();
+        } else {
+          document.getElementById('login-screen').classList.remove('hidden');
+          document.getElementById('app-container').classList.add('hidden');
+          lucide.createIcons();
+        }
+      } catch (e) {
+        console.error('Auth check error:', e);
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const user = document.getElementById('login-username').value;
+      const pass = document.getElementById('login-password').value;
+      const errorBanner = document.getElementById('login-error');
+      const submitBtn = document.getElementById('login-submit-btn');
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Memverifikasi...';
+      lucide.createIcons();
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: user, password: pass })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          errorBanner.classList.add('hidden');
+          checkAuth();
+        } else {
+          errorBanner.classList.remove('hidden');
+          document.getElementById('login-error-msg').innerText = data.error || 'Username atau password salah';
+        }
+      } catch (err) {
+        errorBanner.classList.remove('hidden');
+        document.getElementById('login-error-msg').innerText = 'Koneksi ke server gagal';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Masuk ke Console</span>';
+        lucide.createIcons();
+      }
+    }
+
+    async function handleLogout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+        currentUser = null;
+        window.location.reload();
+      } catch (e) {
+        console.error('Logout error:', e);
+      }
+    }
+
+    // --- ENROLLMENT TOKENS & INSTALL SCRIPT HELPERS ---
+    async function loadActiveToken() {
+      try {
+        const res = await fetch('/api/tokens');
+        if (res.ok) {
+          const tokens = await res.json() || [];
+          if (tokens.length > 0) {
+            activeToken = tokens[0].token;
+            updateInstallCommands();
+          }
+        }
+      } catch (e) {
+        console.error('Failed fetching tokens', e);
+      }
+    }
+
+    async function generateNewToken() {
+      try {
+        const desc = prompt('Masukkan deskripsi token baru (opsional):', 'Agent Node Token');
+        if (desc === null) return;
+        const res = await fetch('/api/tokens', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: desc || 'Agent Token', expires_days: 30 })
+        });
+        if (res.ok) {
+          const tok = await res.json();
+          activeToken = tok.token;
+          updateInstallCommands();
+        } else {
+          alert('Hanya admin yang dapat membuat token pendaftaran baru.');
+        }
+      } catch (e) {
+        alert('Gagal membuat token: ' + e.message);
+      }
+    }
+
+    function updateInstallCommands() {
+      const host = window.location.host;
+      const protocol = window.location.protocol;
+      const wsProto = protocol === 'https:' ? 'wss:' : 'ws:';
+      const httpBase = `${protocol}//${host}`;
+      const wsUrl = `${wsProto}//${host}/ws/agent`;
+
+      document.getElementById('token-display').innerText = activeToken;
+
+      document.getElementById('cmd-linux').innerText = 
+        `curl -sSL ${httpBase}/scripts/install-linux.sh | sudo bash -s -- -s ${wsUrl} -t ${activeToken}`;
+
+      document.getElementById('cmd-windows').innerText = 
+        `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri ${httpBase}/scripts/install-windows.ps1 -OutFile install.ps1; .\\install.ps1 -ServerUrl ${wsUrl} -Token ${activeToken}"`;
+
+      document.getElementById('cmd-macos').innerText = 
+        `curl -sSL ${httpBase}/scripts/install-macos.sh | sudo bash -s -- -s ${wsUrl} -t ${activeToken}`;
+    }
+
+    function selectInstallTab(os) {
+      ['linux', 'windows', 'macos'].forEach(t => {
+        const btn = document.getElementById(`tab-btn-${t}`);
+        const content = document.getElementById(`tab-content-${t}`);
+        if (t === os) {
+          btn.className = 'px-4 py-2.5 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 inline-flex items-center gap-2';
+          content.classList.remove('hidden');
+        } else {
+          btn.className = 'px-4 py-2.5 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 inline-flex items-center gap-2';
+          content.classList.add('hidden');
+        }
+      });
+      lucide.createIcons();
+    }
+
+    function openInstallModal() {
+      updateInstallCommands();
+      document.getElementById('install-modal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeInstallModal() {
+      document.getElementById('install-modal').classList.add('hidden');
+    }
+
+    function copyCmd(elementId) {
+      const text = document.getElementById(elementId).innerText;
+      navigator.clipboard.writeText(text);
+      alert('Perintah instalasi disalin ke clipboard!');
+    }
+
+    // --- AUDIT LOGS MODAL ---
+    async function openAuditsModal() {
+      document.getElementById('audits-modal').classList.remove('hidden');
+      lucide.createIcons();
+      const tbody = document.getElementById('audits-tbody');
+      tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-slate-500">Memuat audit log...</td></tr>`;
+
+      try {
+        const res = await fetch('/api/audits');
+        const audits = await res.json() || [];
+        if (audits.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-slate-500">Belum ada riwayat audit sesi remote.</td></tr>`;
+        } else {
+          tbody.innerHTML = audits.map(a => `
+            <tr class="hover:bg-slate-950/30">
+              <td class="py-2.5 px-3">
+                <span class="px-2 py-0.5 rounded font-mono text-[10px] uppercase font-bold ${a.session_type === 'desktop' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'}">
+                  ${a.session_type}
+                </span>
+              </td>
+              <td class="py-2.5 px-3 font-semibold text-slate-200">${a.username}</td>
+              <td class="py-2.5 px-3 font-mono text-slate-400">${a.device_id.substring(0, 8)}...</td>
+              <td class="py-2.5 px-3 text-slate-400">${new Date(a.started_at).toLocaleString()}</td>
+              <td class="py-2.5 px-3 font-mono text-slate-400">${a.client_ip || '-'}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-8 text-center text-rose-400">Gagal memuat log audit: ${e.message}</td></tr>`;
+      }
+    }
+
+    function closeAuditsModal() {
+      document.getElementById('audits-modal').classList.add('hidden');
+    }
+
+    // --- DEVICE LIST & TELEMETRY ---
     function getOSIcon(os) {
       os = (os || '').toLowerCase();
       if (os.includes('darwin') || os.includes('mac')) {
@@ -350,8 +744,13 @@
     }
 
     async function fetchDevices() {
+      if (!currentUser) return;
       try {
         const res = await fetch('/api/devices');
+        if (res.status === 401) {
+          checkAuth();
+          return;
+        }
         if (!res.ok) throw new Error('Failed to fetch devices');
         const devices = await res.json() || [];
 
@@ -366,7 +765,7 @@
                 <div class="flex flex-col items-center justify-center gap-2">
                   <i data-lucide="inbox" class="w-8 h-8 text-slate-600"></i>
                   <p class="font-medium text-slate-400">Belum ada perangkat yang terhubung</p>
-                  <p class="text-xs text-slate-500">Jalankan binary agent di komputer target untuk mendaftarkan perangkat.</p>
+                  <p class="text-xs text-slate-500">Klik "Add Device" di atas untuk mendaftarkan komputer target.</p>
                 </div>
               </td>
             </tr>
@@ -400,22 +799,22 @@
                   <div class="text-xs text-slate-400 mt-0.5">${getOSIcon(d.os)}</div>
                 </td>
                 <td class="py-3.5 px-4 font-mono text-xs text-slate-300">${d.arch}</td>
-                <td class="py-3.5 px-4 text-xs font-mono">
-                  <div class="text-slate-300">Int: ${d.internal_ip || '-'}</div>
-                  <div class="text-slate-500 text-[11px]">Pub: ${d.public_ip || '-'}</div>
+                <td class="py-3.5 px-4 font-mono text-xs">
+                  <div class="text-slate-200">${d.internal_ip || '-'}</div>
+                  <div class="text-slate-500 text-[10px]">${d.public_ip || ''}</div>
                 </td>
                 <td class="py-3.5 px-4">${cpuBar}</td>
                 <td class="py-3.5 px-4 text-xs text-slate-400">${timeAgo(d.last_seen_at)}</td>
                 <td class="py-3.5 px-4 text-right">
-                  <div class="inline-flex items-center gap-1.5">
-                    <button onclick="openTerminal('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-medium shadow-sm inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
-                      <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Terminal
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button onclick="openDesktop('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
+                      <i data-lucide="layout" class="w-3.5 h-3.5"></i> Desktop
                     </button>
-                    <button onclick="openDesktop('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-emerald-300 border border-slate-700 inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
-                      <i data-lucide="layout" class="w-3.5 h-3.5 text-emerald-400"></i> Desktop
+                    <button onclick="openFilesModal('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
+                      <i data-lucide="folder" class="w-3.5 h-3.5"></i> Files
                     </button>
-                    <button onclick="openFiles('${d.id}', '${d.hostname}')" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 border border-slate-700 inline-flex items-center gap-1 transition-all ${!isOnline ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}">
-                      <i data-lucide="folder" class="w-3.5 h-3.5 text-amber-400"></i> Files
+                    <button onclick="openTerminal('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm transition-all">
+                      <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Shell
                     </button>
                   </div>
                 </td>
@@ -430,49 +829,39 @@
 
         lucide.createIcons();
       } catch (err) {
-        console.error('Error fetching devices:', err);
+        console.error('Fetch devices failed:', err);
       }
     }
 
-    // Terminal Modal Controls
-    function openTerminal(deviceId, hostname) {
+    // --- INTERACTIVE TERMINAL ---
+    function openTerminal(deviceID, hostname) {
       const modal = document.getElementById('terminal-modal');
       const title = document.getElementById('term-title');
       const container = document.getElementById('terminal-container');
-      const dimensionLabel = document.getElementById('term-dimension');
-      
+
       modal.classList.remove('hidden');
-      title.innerText = `Terminal: ${hostname} (Connecting...)`;
+      title.innerText = `Terminal: ${hostname} (${deviceID.substring(0, 8)})`;
       container.innerHTML = '';
 
-      if (activeTerm) {
-        activeTerm.dispose();
-      }
-      if (activeWS) {
-        activeWS.close();
-      }
-
-      // Initialize xterm
       activeTerm = new Terminal({
         theme: {
           background: '#0f172a',
           foreground: '#f8fafc',
           cursor: '#818cf8',
-          cursorAccent: '#0f172a',
+          selectionBackground: '#4338ca',
           black: '#1e293b',
-          red: '#f87171',
-          green: '#4ade80',
-          yellow: '#facc15',
-          blue: '#60a5fa',
-          magenta: '#c084fc',
-          cyan: '#38bdf8',
+          red: '#f43f5e',
+          green: '#10b981',
+          yellow: '#f59e0b',
+          blue: '#3b82f6',
+          magenta: '#d946ef',
+          cyan: '#06b6d4',
           white: '#f1f5f9'
         },
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace',
         fontSize: 13,
-        lineHeight: 1.2,
+        lineHeight: 1.25,
         cursorBlink: true,
-        convertEol: true
       });
 
       activeFitAddon = new FitAddon.FitAddon();
@@ -482,21 +871,20 @@
       activeTerm.open(container);
       activeFitAddon.fit();
 
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${proto}//${location.host}/ws/terminal?device_id=${deviceId}`;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/terminal?device_id=${deviceID}`;
+
       activeWS = new WebSocket(wsUrl);
 
       activeWS.onopen = () => {
-        title.innerText = `Terminal: ${hostname} (Active Session)`;
         activeFitAddon.fit();
-        dimensionLabel.innerText = `cols: ${activeTerm.cols}, rows: ${activeTerm.rows}`;
-
         activeWS.send(JSON.stringify({
           type: 'resize',
           cols: activeTerm.cols,
           rows: activeTerm.rows
         }));
-        activeTerm.focus();
+        const dimLabel = document.getElementById('term-dimension');
+        if (dimLabel) dimLabel.innerText = `cols: ${activeTerm.cols}, rows: ${activeTerm.rows}`;
       };
 
       activeWS.onmessage = (event) => {
@@ -504,13 +892,11 @@
       };
 
       activeWS.onclose = () => {
-        title.innerText = `Terminal: ${hostname} (Session Closed)`;
-        activeTerm.write('\r\n\x1b[31m[Session Closed by Remote Agent]\x1b[0m\r\n');
+        activeTerm.write('\r\n\x1b[31;1m[GoMesh Central]: Sesi terminal berakhir atau terputus.\x1b[0m\r\n');
       };
 
       activeWS.onerror = (err) => {
-        title.innerText = `Terminal: ${hostname} (Connection Error)`;
-        activeTerm.write('\r\n\x1b[31m[WebSocket Connection Error]\x1b[0m\r\n');
+        activeTerm.write('\r\n\x1b[31;1m[GoMesh Central]: Gagal membuka koneksi WebSocket terminal.\x1b[0m\r\n');
       };
 
       activeTerm.onData((data) => {
@@ -518,6 +904,8 @@
           activeWS.send(data);
         }
       });
+
+      activeTerm.focus();
     }
 
     function closeTerminal() {
@@ -531,13 +919,16 @@
         activeTerm.dispose();
         activeTerm = null;
       }
+      activeFitAddon = null;
     }
 
-    // Remote File Explorer Controls
-    function openFiles(deviceId, hostname) {
-      activeFileDeviceID = deviceId;
-      document.getElementById('files-modal').classList.remove('hidden');
-      document.getElementById('files-modal-title').innerText = `File Explorer — ${hostname}`;
+    // --- REMOTE FILE EXPLORER ---
+    function openFilesModal(deviceID, hostname) {
+      activeFileDeviceID = deviceID;
+      const modal = document.getElementById('files-modal');
+      const title = document.getElementById('files-modal-title');
+      modal.classList.remove('hidden');
+      title.innerText = `File Explorer: ${hostname}`;
       loadDir('');
     }
 
@@ -551,10 +942,10 @@
       const tbody = document.getElementById('files-tbody');
       tbody.innerHTML = `
         <tr>
-          <td colspan="5" class="py-8 text-center text-slate-500">
-            <div class="flex items-center justify-center gap-2">
-              <i data-lucide="loader-2" class="w-5 h-5 animate-spin text-amber-400"></i>
-              <span>Membaca direktori...</span>
+          <td colspan="5" class="py-12 text-center text-slate-500">
+            <div class="flex flex-col items-center justify-center gap-2">
+              <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-amber-400"></i>
+              <p>Memuat daftar file...</p>
             </div>
           </td>
         </tr>
@@ -562,87 +953,95 @@
       lucide.createIcons();
 
       try {
-        const url = `/api/devices/${activeFileDeviceID}/files?path=${encodeURIComponent(path || '')}`;
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(await res.text() || 'Failed to list files');
-        const data = await res.json();
-
-        currentLoadedPath = data.path;
-        document.getElementById('files-current-path').innerText = data.path;
-        document.getElementById('path-input').value = data.path;
-
-        const entries = data.entries || [];
-        document.getElementById('files-count-label').innerText = `${entries.length} items`;
-
-        if (entries.length === 0) {
-          tbody.innerHTML = `
-            <tr>
-              <td colspan="5" class="py-8 text-center text-slate-500">
-                <span>Direktori kosong</span>
-              </td>
-            </tr>
-          `;
-        } else {
-          tbody.innerHTML = entries.map(item => {
-            const icon = item.is_dir 
-              ? `<i data-lucide="folder" class="w-4 h-4 text-amber-400 fill-amber-400/20"></i>`
-              : `<i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>`;
-
-            const nameClick = item.is_dir 
-              ? `onclick="loadDir('${item.path.replace(/\\/g, '\\\\')}')"`
-              : '';
-
-            const dateStr = item.mod_time ? new Date(item.mod_time).toLocaleString() : '-';
-            const sizeStr = item.is_dir ? '-' : formatBytes(item.size);
-
-            const downloadBtn = !item.is_dir ? `
-              <a href="/api/devices/${activeFileDeviceID}/files/download?path=${encodeURIComponent(item.path)}" target="_blank" download class="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white inline-block transition-colors" title="Download">
-                <i data-lucide="download" class="w-3.5 h-3.5"></i>
-              </a>
-            ` : '';
-
-            const deleteBtn = `
-              <button onclick="deleteFileItem('${item.path.replace(/\\/g, '\\\\')}', '${item.name}')" class="p-1 rounded bg-slate-800 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 inline-block transition-colors" title="Delete">
-                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-              </button>
-            `;
-
-            return `
-              <tr class="hover:bg-slate-800/40 transition-colors">
-                <td class="py-2.5 px-3">
-                  <div class="flex items-center gap-2 cursor-pointer select-none" ${nameClick}>
-                    ${icon}
-                    <span class="${item.is_dir ? 'font-semibold text-slate-100 hover:text-indigo-300' : 'text-slate-300'}">${item.name}</span>
-                  </div>
-                </td>
-                <td class="py-2.5 px-3 font-mono text-slate-400">${sizeStr}</td>
-                <td class="py-2.5 px-3 font-mono text-slate-500">${item.mode || '-'}</td>
-                <td class="py-2.5 px-3 text-slate-400">${dateStr}</td>
-                <td class="py-2.5 px-3 text-right">
-                  <div class="inline-flex items-center gap-1">
-                    ${downloadBtn}
-                    ${deleteBtn}
-                  </div>
-                </td>
-              </tr>
-            `;
-          }).join('');
+        const query = path ? `?path=${encodeURIComponent(path)}` : '';
+        const res = await fetch(`/api/devices/${activeFileDeviceID}/files${query}`);
+        if (!res.ok) {
+          const err = await res.text();
+          throw new Error(err);
         }
-        lucide.createIcons();
+        const data = await res.json();
+        currentLoadedPath = data.path;
+        document.getElementById('path-input').value = data.path;
+        document.getElementById('files-current-path').innerText = data.path;
+        renderFileList(data.entries || []);
       } catch (err) {
         tbody.innerHTML = `
           <tr>
             <td colspan="5" class="py-8 text-center text-rose-400">
-              <span>Error: ${err.message}</span>
+              <div class="flex flex-col items-center justify-center gap-1">
+                <i data-lucide="alert-triangle" class="w-6 h-6 text-rose-500"></i>
+                <p class="font-semibold">Gagal memuat direktori</p>
+                <p class="text-xs text-slate-500">${err.message}</p>
+              </div>
             </td>
           </tr>
         `;
+        lucide.createIcons();
       }
     }
 
+    function renderFileList(entries) {
+      const tbody = document.getElementById('files-tbody');
+      document.getElementById('files-count-label').innerText = `${entries.length} items`;
+
+      if (entries.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="5" class="py-8 text-center text-slate-500">
+              Folder ini kosong.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = entries.map(e => {
+        const isDir = e.is_dir;
+        const icon = isDir
+          ? `<i data-lucide="folder" class="w-4 h-4 text-amber-400 fill-amber-400/20"></i>`
+          : `<i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>`;
+
+        const nameClick = isDir
+          ? `onclick="loadDir('${escapeQuotes(e.path)}')" class="cursor-pointer text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-2"`
+          : `class="text-slate-200 flex items-center gap-2"`;
+
+        const downloadBtn = !isDir
+          ? `<button onclick="downloadFile('${escapeQuotes(e.path)}')" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors" title="Download"><i data-lucide="download" class="w-3.5 h-3.5"></i></button>`
+          : '';
+
+        const deleteBtn = `<button onclick="deleteFile('${escapeQuotes(e.path)}')" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`;
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition-colors">
+            <td class="py-2.5 px-3">
+              <div ${nameClick}>
+                ${icon}
+                <span class="truncate max-w-md">${e.name}</span>
+              </div>
+            </td>
+            <td class="py-2.5 px-3 font-mono text-[11px] text-slate-400">${isDir ? '-' : formatBytes(e.size)}</td>
+            <td class="py-2.5 px-3 font-mono text-[11px] text-slate-500">${e.mode || '-'}</td>
+            <td class="py-2.5 px-3 text-slate-400 text-[11px]">${new Date(e.mod_time).toLocaleString()}</td>
+            <td class="py-2.5 px-3 text-right">
+              <div class="flex items-center justify-end gap-1">
+                ${downloadBtn}
+                ${deleteBtn}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      lucide.createIcons();
+    }
+
+    function escapeQuotes(str) {
+      return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
     function navigateUp() {
-      if (!currentLoadedPath) return;
-      const parts = currentLoadedPath.replace(/\/$/, '').split('/');
+      if (!currentLoadedPath || currentLoadedPath === '/' || currentLoadedPath === '.') return;
+      const parts = currentLoadedPath.replace(/\/+$/, '').split('/');
       parts.pop();
       const parent = parts.join('/') || '/';
       loadDir(parent);
@@ -654,7 +1053,7 @@
 
     async function handleFileSelected(event) {
       const file = event.target.files[0];
-      if (!file || !activeFileDeviceID || !currentLoadedPath) return;
+      if (!file) return;
 
       const status = document.getElementById('upload-status');
       status.innerText = `Mengunggah ${file.name}...`;
@@ -663,41 +1062,32 @@
       formData.append('file', file);
 
       try {
-        const res = await fetch(`/api/devices/${activeFileDeviceID}/files/upload?path=${encodeURIComponent(currentLoadedPath)}`, {
+        const query = currentLoadedPath ? `?path=${encodeURIComponent(currentLoadedPath)}` : '';
+        const res = await fetch(`/api/devices/${activeFileDeviceID}/files/upload${query}`, {
           method: 'POST',
-          body: formData
+          body: formData,
         });
-        if (!res.ok) throw new Error(await res.text() || 'Upload gagal');
-        status.innerText = `Selesai: ${file.name}`;
+
+        if (!res.ok) throw new Error(await res.text());
+        status.innerText = `Berhasil mengunggah ${file.name}`;
         setTimeout(() => { status.innerText = ''; }, 3000);
         loadDir(currentLoadedPath);
       } catch (err) {
-        status.innerText = `Error: ${err.message}`;
+        alert('Gagal mengunggah file: ' + err.message);
+        status.innerText = '';
       } finally {
         event.target.value = '';
       }
     }
 
-    async function createNewFolder() {
-      const name = prompt('Masukkan nama folder baru:');
-      if (!name || !activeFileDeviceID || !currentLoadedPath) return;
-
-      const targetPath = `${currentLoadedPath}/${name}`;
-      try {
-        const res = await fetch(`/api/devices/${activeFileDeviceID}/files/action`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'mkdir', path: targetPath })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        loadDir(currentLoadedPath);
-      } catch (err) {
-        alert('Gagal membuat folder: ' + err.message);
-      }
+    function downloadFile(filePath) {
+      if (!activeFileDeviceID) return;
+      const url = `/api/devices/${activeFileDeviceID}/files/download?path=${encodeURIComponent(filePath)}`;
+      window.open(url, '_blank');
     }
 
-    async function deleteFileItem(filePath, name) {
-      if (!confirm(`Apakah Anda yakin ingin menghapus "${name}"?`)) return;
+    async function deleteFile(filePath) {
+      if (!confirm(`Hapus ${filePath}? Tindakan ini tidak dapat dibatalkan.`)) return;
       try {
         const res = await fetch(`/api/devices/${activeFileDeviceID}/files/action`, {
           method: 'POST',
@@ -707,43 +1097,59 @@
         if (!res.ok) throw new Error(await res.text());
         loadDir(currentLoadedPath);
       } catch (err) {
-        alert('Gagal menghapus item: ' + err.message);
+        alert('Gagal menghapus: ' + err.message);
       }
     }
 
-    // Remote Desktop Live Stream Controls
-    function openDesktop(deviceId, hostname) {
-      activeDesktopDeviceID = deviceId;
+    async function createNewFolder() {
+      const folderName = prompt('Nama folder baru:');
+      if (!folderName) return;
+      const fullPath = currentLoadedPath ? `${currentLoadedPath.replace(/\/+$/, '')}/${folderName}` : folderName;
+
+      try {
+        const res = await fetch(`/api/devices/${activeFileDeviceID}/files/action`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'mkdir', path: fullPath })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        loadDir(currentLoadedPath);
+      } catch (err) {
+        alert('Gagal membuat folder: ' + err.message);
+      }
+    }
+
+    // --- LIVE REMOTE DESKTOP ---
+    function openDesktop(deviceID, hostname) {
+      activeDesktopDeviceID = deviceID;
       const modal = document.getElementById('desktop-modal');
       const title = document.getElementById('desktop-title');
-      const loading = document.getElementById('desktop-loading');
       const metrics = document.getElementById('desktop-metrics');
+      const loading = document.getElementById('desktop-loading');
       const canvas = document.getElementById('desktop-canvas');
+      const ctx = canvas.getContext('2d');
 
       modal.classList.remove('hidden');
-      title.innerText = `Remote Desktop — ${hostname}`;
+      title.innerText = `Remote Desktop: ${hostname} (${deviceID.substring(0, 8)})`;
+      metrics.innerText = 'Menghubungkan stream...';
       loading.classList.remove('hidden');
-      metrics.innerText = 'Connecting live stream...';
-
-      if (activeDesktopWS) {
-        activeDesktopWS.close();
-      }
+      loading.innerHTML = `
+        <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-emerald-400"></i>
+        <p class="text-sm font-medium">Memulai streaming layar remote...</p>
+      `;
+      lucide.createIcons();
 
       desktopControlEnabled = false;
       updateControlUI();
 
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = `${proto}//${location.host}/ws/desktop?device_id=${deviceId}`;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/desktop?device_id=${deviceID}`;
+
       activeDesktopWS = new WebSocket(wsUrl);
 
-      const ctx = canvas.getContext('2d');
       let frameCount = 0;
       let lastFpsCheck = Date.now();
       let currentFPS = 0;
-
-      activeDesktopWS.onopen = () => {
-        metrics.innerText = 'Stream connected. Awaiting frame...';
-      };
 
       activeDesktopWS.onmessage = (event) => {
         try {
@@ -805,7 +1211,7 @@
 
       canvas.onmousemove = (e) => {
         const now = Date.now();
-        if (now - lastMoveSent > 50) { // throttle 20 mousemove/sec
+        if (now - lastMoveSent > 50) {
           lastMoveSent = now;
           const pos = getCanvasCoordinates(e);
           sendInput({ event: 'mousemove', x: pos.x, y: pos.y });
@@ -917,11 +1323,15 @@
         if (!filesModal.classList.contains('hidden')) closeFilesModal();
         const deskModal = document.getElementById('desktop-modal');
         if (!deskModal.classList.contains('hidden') && !document.fullscreenElement) closeDesktopModal();
+        const installModal = document.getElementById('install-modal');
+        if (!installModal.classList.contains('hidden')) closeInstallModal();
+        const auditsModal = document.getElementById('audits-modal');
+        if (!auditsModal.classList.contains('hidden')) closeAuditsModal();
       }
     });
 
-    // Initial load
-    fetchDevices();
+    // Initialize Auth & Polling
+    checkAuth();
     setInterval(fetchDevices, 3000);
   </script>
 </body>

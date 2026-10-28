@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"gomesh/internal/server/auth"
 	"gomesh/internal/server/hub"
 	"gomesh/internal/server/store"
 	"gomesh/web"
@@ -40,6 +41,23 @@ func main() {
 	}
 	defer st.Close()
 
+	// Ensure default admin user
+	if admin, created, err := st.EnsureDefaultAdmin(context.Background()); err != nil {
+		slog.Error("failed initializing admin user", "error", err)
+	} else if created {
+		slog.Info("initialized default admin credentials", "username", admin.Username, "initial_password", "admin123")
+	}
+
+	// Ensure at least one active enrollment token
+	tokens, err := st.ListEnrollmentTokens(context.Background())
+	if err == nil && len(tokens) == 0 {
+		tok, err := st.CreateEnrollmentToken(context.Background(), "Default Agent Enrollment Token", "system", 0)
+		if err == nil {
+			slog.Info("created initial agent enrollment token", "token", tok.Token)
+		}
+	}
+
+	sm := auth.NewSessionManager(24 * time.Hour)
 	h := hub.New(st)
 	defer h.Stop()
 
@@ -62,8 +80,99 @@ func main() {
 		io.Copy(w, f)
 	})
 
-	// API: List Devices
-	mux.HandleFunc("GET /api/devices", func(w http.ResponseWriter, r *http.Request) {
+	// Serves install scripts
+	mux.HandleFunc("GET /scripts/{file}", func(w http.ResponseWriter, r *http.Request) {
+		file := filepath.Base(r.PathValue("file"))
+		scriptPath := filepath.Join("scripts", file)
+		data, err := os.ReadFile(scriptPath)
+		if err != nil {
+			http.Error(w, "Script not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Write(data)
+	})
+
+	// Serves compiled agent binaries for installer downloads
+	mux.HandleFunc("GET /bin/{file}", func(w http.ResponseWriter, r *http.Request) {
+		file := filepath.Base(r.PathValue("file"))
+		binPath := filepath.Join("bin", file)
+		if _, err := os.Stat(binPath); os.IsNotExist(err) {
+			http.Error(w, "Binary not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/octet-stream")
+		http.ServeFile(w, r, binPath)
+	})
+
+	// --- AUTH REST ENDPOINTS ---
+
+	// POST /api/auth/login
+	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"error":"invalid request"}`, http.StatusBadRequest)
+			return
+		}
+
+		user, err := st.AuthenticateUser(r.Context(), req.Username, req.Password)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Invalid username or password"})
+			return
+		}
+
+		sess := sm.Create(user)
+		auth.SetCookie(w, sess.ID, 24*time.Hour)
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"token":   sess.ID,
+			"user": map[string]interface{}{
+				"id":       user.ID,
+				"username": user.Username,
+				"role":     user.Role,
+			},
+		})
+	})
+
+	// POST /api/auth/logout
+	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		if sess, ok := sm.GetSessionFromRequest(r); ok {
+			sm.Revoke(sess.ID)
+		}
+		auth.ClearCookie(w)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	})
+
+	// GET /api/auth/me
+	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		sess, ok := sm.GetSessionFromRequest(r)
+		if !ok {
+			json.NewEncoder(w).Encode(map[string]interface{}{"authenticated": false})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"authenticated": true,
+			"user": map[string]interface{}{
+				"id":       sess.UserID,
+				"username": sess.Username,
+				"role":     sess.Role,
+			},
+		})
+	})
+
+	// --- PROTECTED DEVICE & TELEMETRY ENDPOINTS ---
+
+	// API: List Devices (Protected)
+	mux.HandleFunc("GET /api/devices", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		devices, err := st.ListDevices(r.Context())
 		if err != nil {
 			http.Error(w, fmt.Sprintf("Error fetching devices: %v", err), http.StatusInternalServerError)
@@ -74,25 +183,27 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(devices)
-	})
+	}))
 
-	// WebSocket endpoint for Agents (Reverse connection)
+	// WebSocket endpoint for Agents (Reverse connection - agent authenticates via token in HelloPayload)
 	mux.HandleFunc("GET /ws/agent", func(w http.ResponseWriter, r *http.Request) {
 		h.HandleAgentWS(w, r)
 	})
 
-	// WebSocket endpoint for Interactive Terminal (Technician Web Console)
-	mux.HandleFunc("GET /ws/terminal", func(w http.ResponseWriter, r *http.Request) {
+	// WebSocket endpoint for Interactive Terminal (Protected)
+	mux.HandleFunc("GET /ws/terminal", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		h.HandleTerminalWS(w, r)
-	})
+	}))
 
-	// WebSocket endpoint for Live Remote Desktop (Screen Capture & Input)
-	mux.HandleFunc("GET /ws/desktop", func(w http.ResponseWriter, r *http.Request) {
+	// WebSocket endpoint for Live Remote Desktop (Protected)
+	mux.HandleFunc("GET /ws/desktop", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		h.HandleDesktopWS(w, r)
-	})
+	}))
+
+	// --- PROTECTED FILE MANAGER ENDPOINTS ---
 
 	// API: List remote files
-	mux.HandleFunc("GET /api/devices/{id}/files", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/devices/{id}/files", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		targetPath := r.URL.Query().Get("path")
 		resp, err := h.ListFiles(r.Context(), id, targetPath)
@@ -102,10 +213,10 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
 	// API: Download remote file
-	mux.HandleFunc("GET /api/devices/{id}/files/download", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /api/devices/{id}/files/download", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		filePath := r.URL.Query().Get("path")
 		if filePath == "" {
@@ -137,10 +248,10 @@ func main() {
 			}
 			offset += int64(len(data))
 		}
-	})
+	}))
 
 	// API: Upload file to remote agent
-	mux.HandleFunc("POST /api/devices/{id}/files/upload", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/devices/{id}/files/upload", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		targetDir := r.URL.Query().Get("path")
 
@@ -179,10 +290,10 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": targetFilePath})
-	})
+	}))
 
 	// API: File actions (delete, mkdir)
-	mux.HandleFunc("POST /api/devices/{id}/files/action", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /api/devices/{id}/files/action", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		var body struct {
 			Action string `json:"action"`
@@ -200,7 +311,66 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-	})
+	}))
+
+	// --- ENROLLMENT TOKEN MANAGEMENT ENDPOINTS ---
+
+	// GET /api/tokens (Protected)
+	mux.HandleFunc("GET /api/tokens", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		tokens, err := st.ListEnrollmentTokens(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if tokens == nil {
+			tokens = make([]*store.EnrollmentToken, 0)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tokens)
+	}))
+
+	// POST /api/tokens (Admin only)
+	mux.HandleFunc("POST /api/tokens", sm.RequireAdmin(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Description string `json:"description"`
+			ExpiresDays int    `json:"expires_days"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		currentUser, _ := auth.FromContext(r.Context())
+		username := "admin"
+		if currentUser != nil {
+			username = currentUser.Username
+		}
+
+		token, err := st.CreateEnrollmentToken(r.Context(), req.Description, username, req.ExpiresDays)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(token)
+	}))
+
+	// --- AUDIT LOGS ENDPOINTS ---
+
+	// GET /api/audits (Protected)
+	mux.HandleFunc("GET /api/audits", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		audits, err := st.ListAudits(r.Context(), 50)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if audits == nil {
+			audits = make([]*store.SessionAudit, 0)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(audits)
+	}))
 
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", *port),

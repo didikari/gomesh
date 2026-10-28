@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gomesh/internal/protocol"
+	"gomesh/internal/server/auth"
 	"gomesh/internal/server/store"
 
 	"github.com/google/uuid"
@@ -208,6 +209,28 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 
 	if hello.DeviceID == "" {
 		hello.DeviceID = uuid.NewString()
+	}
+
+	// Verify enrollment token if device is not already enrolled
+	isEnrolled, err := h.store.IsDeviceRegistered(h.ctx, hello.HardwareUUID)
+	if err != nil {
+		slog.Error("error checking device registration", "error", err)
+	}
+	if !isEnrolled {
+		valid, err := h.store.ValidateEnrollmentToken(h.ctx, hello.Token)
+		if err != nil || !valid {
+			slog.Warn("agent rejected: invalid or expired enrollment token",
+				"hardware_uuid", hello.HardwareUUID,
+				"hostname", hello.Hostname,
+				"token", hello.Token,
+			)
+			_ = conn.WriteJSON(protocol.NewEnvelope(protocol.TypeHelloAck, protocol.HelloAckPayload{
+				Accepted:   false,
+				Message:    "Invalid or expired enrollment token",
+				ServerTime: time.Now().UnixMilli(),
+			}))
+			return
+		}
 	}
 
 	clientIP := r.Header.Get("X-Forwarded-For")
@@ -415,7 +438,29 @@ func (h *Hub) HandleTerminalWS(w http.ResponseWriter, r *http.Request) {
 
 	defer h.closeTerminalSession(sessionID)
 
-	slog.Info("opening interactive terminal session", "session_id", sessionID, "device_id", deviceID)
+	user := "admin"
+	if sess, ok := auth.FromContext(r.Context()); ok {
+		user = sess.Username
+	} else if u := r.URL.Query().Get("user"); u != "" {
+		user = u
+	}
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+	}
+	startedAt := time.Now().UTC()
+	defer func() {
+		_ = h.store.RecordAudit(context.Background(), &store.SessionAudit{
+			DeviceID:    deviceID,
+			Username:    user,
+			SessionType: "terminal",
+			StartedAt:   startedAt,
+			EndedAt:     time.Now().UTC(),
+			ClientIP:    clientIP,
+		})
+	}()
+
+	slog.Info("opening interactive terminal session", "session_id", sessionID, "device_id", deviceID, "user", user)
 
 	// Send PTYStart to target agent
 	cols := uint16(80)
@@ -523,7 +568,29 @@ func (h *Hub) HandleDesktopWS(w http.ResponseWriter, r *http.Request) {
 
 	defer h.closeDesktopSession(sessionID)
 
-	slog.Info("opening live remote desktop session", "session_id", sessionID, "device_id", deviceID)
+	user := "admin"
+	if sess, ok := auth.FromContext(r.Context()); ok {
+		user = sess.Username
+	} else if u := r.URL.Query().Get("user"); u != "" {
+		user = u
+	}
+	clientIP := r.Header.Get("X-Forwarded-For")
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+	}
+	startedAt := time.Now().UTC()
+	defer func() {
+		_ = h.store.RecordAudit(context.Background(), &store.SessionAudit{
+			DeviceID:    deviceID,
+			Username:    user,
+			SessionType: "desktop",
+			StartedAt:   startedAt,
+			EndedAt:     time.Now().UTC(),
+			ClientIP:    clientIP,
+		})
+	}()
+
+	slog.Info("opening live remote desktop session", "session_id", sessionID, "device_id", deviceID, "user", user)
 
 	// Send DesktopStart to target agent
 	startEnv := protocol.NewEnvelope(protocol.TypeDesktopStart, protocol.DesktopStartPayload{

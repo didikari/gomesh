@@ -60,15 +60,22 @@ Success criteria:
 - [x] Layar remote tampil di canvas browser dengan update frame rate stabil (> 10-15 FPS) (`PASS` pada `TestRemoteDesktopStream`).
 - [x] Input mouse & keyboard tersambung dan terefleksi ke komputer target.
 
-### Phase 5 — Hardening, Auth RBAC & Production Readiness
+### Phase 5 — Hardening, Auth RBAC & Production Readiness [SELESAI]
 Goal: Pengamanan sistem dan deployment readiness.
-- Autentikasi user web (bcrypt password, JWT/session cookie).
-- Manajemen Enrollment Token untuk pendaftaran agen baru.
-- Service installer script untuk Linux (`systemd`) dan Windows (`sc.exe`).
-- Audit logging tersimpan di database.
+- [x] Autentikasi user web (bcrypt password hashing, HTTP-only session cookie `gomesh_session`, session manager in-memory dengan auto-purge).
+- [x] RBAC Middleware (`RequireAuth`, `RequireAdmin`) melindungi seluruh endpoint REST API dan WebSocket relay.
+- [x] Manajemen Enrollment Token untuk pendaftaran agen baru (validasi token di handshake hello, bypass jika device sudah terdaftar).
+- [x] Service installer script:
+  - Linux `systemd`: `scripts/install-linux.sh`
+  - Windows `sc.exe`: `scripts/install-windows.ps1`
+  - macOS `LaunchDaemon`: `scripts/install-macos.sh`
+- [x] Audit logging interaksi remote (`session_audits` tabel SQLite untuk terminal dan desktop streaming).
+- [x] Antivirus False-Positive Hardening: Tanpa packer (anti-UPX), build flags `-trimpath -ldflags="-s -w"`, pendaftaran service Windows via `sc.exe` standar.
+- [x] Add Device / Deployment UI Modal dengan 1-click copy command dan download binary standalone.
 Success criteria:
-- Multi-user RBAC aktif.
-- Agent dapat diinstal dengan single command script.
+- [x] Multi-user RBAC aktif (`PASS` pada `TestSessionManagerLifecycle` & `TestAuthMiddleware`).
+- [x] Pendaftaran agen dan validasi enrollment token terverifikasi (`PASS` pada `TestAuthAndTokenEnrollment`).
+- [x] Agent dapat diinstal dengan single command script (Linux systemd, Windows PowerShell, macOS launchd).
 
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
