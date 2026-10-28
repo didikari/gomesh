@@ -59,10 +59,12 @@ type TerminalSession struct {
 // Hub manages active agent and browser sessions
 type Hub struct {
 	store            *store.Store
-	agents           map[string]*AgentSession    // keyed by DeviceID
-	terminalSessions map[string]*TerminalSession // keyed by SessionID
+	agents           map[string]*AgentSession          // keyed by DeviceID
+	terminalSessions map[string]*TerminalSession       // keyed by SessionID
+	pendingResponses map[string]chan protocol.Envelope // keyed by RequestID
 	mu               sync.RWMutex
 	termMu           sync.RWMutex
+	respMu           sync.RWMutex
 	ctx              context.Context
 	cancel           context.CancelFunc
 }
@@ -74,6 +76,7 @@ func New(st *store.Store) *Hub {
 		store:            st,
 		agents:           make(map[string]*AgentSession),
 		terminalSessions: make(map[string]*TerminalSession),
+		pendingResponses: make(map[string]chan protocol.Envelope),
 		ctx:              ctx,
 		cancel:           cancel,
 	}
@@ -313,6 +316,23 @@ func (h *Hub) HandleAgentWS(w http.ResponseWriter, r *http.Request) {
 				h.closeTerminalSession(ptyStop.SessionID)
 			}
 
+		case protocol.TypeFileListResp, protocol.TypeFileDownloadChunk, protocol.TypeFileUploadResp, protocol.TypeFileActionResp:
+			raw, _ := json.Marshal(env.Payload)
+			var header struct {
+				RequestID string `json:"request_id"`
+			}
+			if err := json.Unmarshal(raw, &header); err == nil && header.RequestID != "" {
+				h.respMu.RLock()
+				ch, ok := h.pendingResponses[header.RequestID]
+				h.respMu.RUnlock()
+				if ok && ch != nil {
+					select {
+					case ch <- env:
+					default:
+					}
+				}
+			}
+
 		default:
 			slog.Debug("received message from agent", "type", env.Type, "device_id", dev.ID)
 		}
@@ -440,4 +460,153 @@ func (h *Hub) ConnectedCount() int {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return len(h.agents)
+}
+
+// RequestRPC sends an RPC request envelope to the specified agent and awaits the response
+func (h *Hub) RequestRPC(ctx context.Context, deviceID string, msgType string, payload interface{}) (protocol.Envelope, error) {
+	h.mu.RLock()
+	agent, ok := h.agents[deviceID]
+	h.mu.RUnlock()
+	if !ok || agent == nil {
+		return protocol.Envelope{}, fmt.Errorf("device is not currently online")
+	}
+
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return protocol.Envelope{}, fmt.Errorf("marshal payload error: %w", err)
+	}
+
+	var header struct {
+		RequestID string `json:"request_id"`
+	}
+	if err := json.Unmarshal(raw, &header); err != nil || header.RequestID == "" {
+		return protocol.Envelope{}, fmt.Errorf("missing request_id in rpc payload")
+	}
+
+	ch := make(chan protocol.Envelope, 1)
+	h.respMu.Lock()
+	h.pendingResponses[header.RequestID] = ch
+	h.respMu.Unlock()
+
+	defer func() {
+		h.respMu.Lock()
+		delete(h.pendingResponses, header.RequestID)
+		h.respMu.Unlock()
+	}()
+
+	env := protocol.NewEnvelope(msgType, payload)
+	if err := agent.SendMessage(env); err != nil {
+		return protocol.Envelope{}, fmt.Errorf("failed sending rpc request: %w", err)
+	}
+
+	select {
+	case resp := <-ch:
+		return resp, nil
+	case <-ctx.Done():
+		return protocol.Envelope{}, ctx.Err()
+	case <-time.After(10 * time.Second):
+		return protocol.Envelope{}, fmt.Errorf("rpc request timed out")
+	}
+}
+
+// ListFiles requests a directory listing from a remote agent
+func (h *Hub) ListFiles(ctx context.Context, deviceID, targetPath string) (*protocol.FileListRespPayload, error) {
+	reqID := uuid.NewString()
+	req := protocol.FileListReqPayload{
+		RequestID: reqID,
+		Path:      targetPath,
+	}
+
+	env, err := h.RequestRPC(ctx, deviceID, protocol.TypeFileListReq, req)
+	if err != nil {
+		return nil, err
+	}
+
+	raw, _ := json.Marshal(env.Payload)
+	var resp protocol.FileListRespPayload
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("invalid response payload: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	return &resp, nil
+}
+
+// DownloadFileChunk requests a chunk of a remote file
+func (h *Hub) DownloadFileChunk(ctx context.Context, deviceID, filePath string, offset int64, chunkSize int) (*protocol.FileDownloadChunkPayload, error) {
+	reqID := uuid.NewString()
+	req := protocol.FileDownloadReqPayload{
+		RequestID: reqID,
+		Path:      filePath,
+		Offset:    offset,
+		ChunkSize: chunkSize,
+	}
+
+	env, err := h.RequestRPC(ctx, deviceID, protocol.TypeFileDownloadReq, req)
+	if err != nil {
+		return nil, err
+	}
+
+	raw, _ := json.Marshal(env.Payload)
+	var resp protocol.FileDownloadChunkPayload
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return nil, fmt.Errorf("invalid response payload: %w", err)
+	}
+	if resp.Error != "" {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	return &resp, nil
+}
+
+// UploadFileChunk sends a file chunk to be written on the agent
+func (h *Hub) UploadFileChunk(ctx context.Context, deviceID, filePath string, offset int64, b64Data string, isLast bool) error {
+	reqID := uuid.NewString()
+	req := protocol.FileUploadChunkPayload{
+		RequestID: reqID,
+		Path:      filePath,
+		Offset:    offset,
+		Data:      b64Data,
+		IsLast:    isLast,
+	}
+
+	env, err := h.RequestRPC(ctx, deviceID, protocol.TypeFileUploadChunk, req)
+	if err != nil {
+		return err
+	}
+
+	raw, _ := json.Marshal(env.Payload)
+	var resp protocol.FileUploadRespPayload
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("invalid response payload: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("agent error: %s", resp.Error)
+	}
+	return nil
+}
+
+// FileAction performs delete or mkdir on target agent
+func (h *Hub) FileAction(ctx context.Context, deviceID, action, targetPath string) error {
+	reqID := uuid.NewString()
+	req := protocol.FileActionReqPayload{
+		RequestID: reqID,
+		Action:    action,
+		Path:      targetPath,
+	}
+
+	env, err := h.RequestRPC(ctx, deviceID, protocol.TypeFileActionReq, req)
+	if err != nil {
+		return err
+	}
+
+	raw, _ := json.Marshal(env.Payload)
+	var resp protocol.FileActionRespPayload
+	if err := json.Unmarshal(raw, &resp); err != nil {
+		return fmt.Errorf("invalid response payload: %w", err)
+	}
+	if !resp.Success {
+		return fmt.Errorf("agent error: %s", resp.Error)
+	}
+	return nil
 }

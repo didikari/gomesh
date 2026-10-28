@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -81,6 +83,117 @@ func main() {
 	// WebSocket endpoint for Interactive Terminal (Technician Web Console)
 	mux.HandleFunc("GET /ws/terminal", func(w http.ResponseWriter, r *http.Request) {
 		h.HandleTerminalWS(w, r)
+	})
+
+	// API: List remote files
+	mux.HandleFunc("GET /api/devices/{id}/files", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		targetPath := r.URL.Query().Get("path")
+		resp, err := h.ListFiles(r.Context(), id, targetPath)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	// API: Download remote file
+	mux.HandleFunc("GET /api/devices/{id}/files/download", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		filePath := r.URL.Query().Get("path")
+		if filePath == "" {
+			http.Error(w, "missing path", http.StatusBadRequest)
+			return
+		}
+
+		baseName := filepath.Base(filePath)
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", baseName))
+		w.Header().Set("Content-Type", "application/octet-stream")
+
+		offset := int64(0)
+		chunkSize := 64 * 1024
+		for {
+			chunk, err := h.DownloadFileChunk(r.Context(), id, filePath, offset, chunkSize)
+			if err != nil {
+				slog.Error("error downloading chunk", "error", err)
+				return
+			}
+
+			data, err := base64.StdEncoding.DecodeString(chunk.Data)
+			if err != nil {
+				return
+			}
+			w.Write(data)
+
+			if chunk.IsEOF || len(data) == 0 {
+				break
+			}
+			offset += int64(len(data))
+		}
+	})
+
+	// API: Upload file to remote agent
+	mux.HandleFunc("POST /api/devices/{id}/files/upload", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		targetDir := r.URL.Query().Get("path")
+
+		// 32MB max memory buffer
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, "failed parsing multipart form", http.StatusBadRequest)
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "missing file in form", http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+
+		targetFilePath := filepath.Join(targetDir, header.Filename)
+		offset := int64(0)
+		buf := make([]byte, 64*1024)
+
+		for {
+			n, readErr := file.Read(buf)
+			if n > 0 {
+				isLast := readErr == io.EOF
+				b64 := base64.StdEncoding.EncodeToString(buf[:n])
+				if err := h.UploadFileChunk(r.Context(), id, targetFilePath, offset, b64, isLast); err != nil {
+					http.Error(w, fmt.Sprintf("upload failed: %v", err), http.StatusInternalServerError)
+					return
+				}
+				offset += int64(n)
+			}
+			if readErr != nil {
+				break
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "path": targetFilePath})
+	})
+
+	// API: File actions (delete, mkdir)
+	mux.HandleFunc("POST /api/devices/{id}/files/action", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		var body struct {
+			Action string `json:"action"`
+			Path   string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if err := h.FileAction(r.Context(), id, body.Action, body.Path); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	})
 
 	server := &http.Server{

@@ -41,13 +41,14 @@ Goal: Akses shell interaktif dari browser ke komputer target.
 Success criteria:
 - [x] Teknisi dapat mengetik perintah shell di browser dan melihat output secara interaktif dan real-time (`PASS` pada unit/integration test).
 
-### Phase 3 — Remote File Explorer & Transfer
+### Phase 3 — Remote File Explorer & Transfer [SELESAI]
 Goal: Penjelajahan direktori dan transfer file jarak jauh.
-- Endpoint protokol RPC file: ListDir, DownloadChunk, UploadChunk, DeleteFile.
-- UI file browser di web console (pohon folder dan file list).
-- Binary chunk streaming aman via WebSocket.
+- [x] Endpoint protokol RPC file: ListDir, DownloadChunk, UploadChunk, DeleteFile (`internal/protocol/messages.go`).
+- [x] Subsystem file manager di agen (`internal/agent/filemgr/`).
+- [x] UI file browser di web console dengan breadcrumb, upload, download, delete, dan mkdir modal (`web/index.html`).
+- [x] Binary chunk streaming aman via REST relay dan WebSocket RPC.
 Success criteria:
-- Dapat melihat struktur file remote, men-download file log, dan mengunggah file uji coba tanpa korupsi stream.
+- [x] Dapat melihat struktur file remote, men-download file log, dan mengunggah file uji coba tanpa korupsi stream (`PASS` pada `TestFileExplorerRPC`).
 
 ### Phase 4 — Remote Desktop (Screen View & Input Injection)
 Goal: Menampilkan layar desktop komputer target dan kendali mouse/keyboard.

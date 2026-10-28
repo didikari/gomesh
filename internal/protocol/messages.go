@@ -16,6 +16,16 @@ const (
 	TypePTYData   = "pty_data"
 	TypePTYResize = "pty_resize"
 	TypePTYStop   = "pty_stop"
+
+	// File Explorer & Transfer message types
+	TypeFileListReq       = "file_list_req"
+	TypeFileListResp      = "file_list_resp"
+	TypeFileDownloadReq   = "file_download_req"
+	TypeFileDownloadChunk = "file_download_chunk"
+	TypeFileUploadChunk   = "file_upload_chunk"
+	TypeFileUploadResp    = "file_upload_resp"
+	TypeFileActionReq     = "file_action_req"
+	TypeFileActionResp    = "file_action_resp"
 )
 
 // Envelope wraps all messages exchanged over WebSocket
@@ -90,6 +100,77 @@ type PTYResizePayload struct {
 // PTYStopPayload requests termination of a PTY session
 type PTYStopPayload struct {
 	SessionID string `json:"session_id"`
+}
+
+// FileEntry represents a file or directory item
+type FileEntry struct {
+	Name    string `json:"name"`
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	Mode    string `json:"mode"`
+	ModTime int64  `json:"mod_time"`
+	IsDir   bool   `json:"is_dir"`
+}
+
+// FileListReqPayload requests a directory listing
+type FileListReqPayload struct {
+	RequestID string `json:"request_id"`
+	Path      string `json:"path"`
+}
+
+// FileListRespPayload returns directory items
+type FileListRespPayload struct {
+	RequestID string      `json:"request_id"`
+	Path      string      `json:"path"`
+	Entries   []FileEntry `json:"entries"`
+	Error     string      `json:"error,omitempty"`
+}
+
+// FileDownloadReqPayload requests a file to download
+type FileDownloadReqPayload struct {
+	RequestID string `json:"request_id"`
+	Path      string `json:"path"`
+	Offset    int64  `json:"offset"`
+	ChunkSize int    `json:"chunk_size"`
+}
+
+// FileDownloadChunkPayload returns a chunk of file data
+type FileDownloadChunkPayload struct {
+	RequestID string `json:"request_id"`
+	Offset    int64  `json:"offset"`
+	Data      string `json:"data"` // base64 encoded
+	IsEOF     bool   `json:"is_eof"`
+	Error     string `json:"error,omitempty"`
+}
+
+// FileUploadChunkPayload delivers a chunk of data to write on agent
+type FileUploadChunkPayload struct {
+	RequestID string `json:"request_id"`
+	Path      string `json:"path"`
+	Offset    int64  `json:"offset"`
+	Data      string `json:"data"` // base64 encoded
+	IsLast    bool   `json:"is_last"`
+}
+
+// FileUploadRespPayload confirms a chunk write
+type FileUploadRespPayload struct {
+	RequestID string `json:"request_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// FileActionReqPayload requests file operations (delete, mkdir)
+type FileActionReqPayload struct {
+	RequestID string `json:"request_id"`
+	Action    string `json:"action"` // "delete", "mkdir"
+	Path      string `json:"path"`
+}
+
+// FileActionRespPayload confirms action outcome
+type FileActionRespPayload struct {
+	RequestID string `json:"request_id"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
 }
 
 // NewEnvelope creates a new envelope with the current unix millisecond timestamp

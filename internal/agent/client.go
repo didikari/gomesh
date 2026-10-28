@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"gomesh/internal/agent/filemgr"
 	"gomesh/internal/agent/pty"
 	"gomesh/internal/protocol"
 
@@ -250,6 +251,89 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 			var payload protocol.PTYStopPayload
 			if err := json.Unmarshal(raw, &payload); err == nil {
 				c.stopPTYSession(payload.SessionID)
+			}
+
+		case protocol.TypeFileListReq:
+			raw, _ := json.Marshal(env.Payload)
+			var req protocol.FileListReqPayload
+			if err := json.Unmarshal(raw, &req); err == nil {
+				go func(r protocol.FileListReqPayload) {
+					resolvedPath, entries, err := filemgr.List(r.Path)
+					errMsg := ""
+					if err != nil {
+						errMsg = err.Error()
+					}
+					resp := protocol.FileListRespPayload{
+						RequestID: r.RequestID,
+						Path:      resolvedPath,
+						Entries:   entries,
+						Error:     errMsg,
+					}
+					_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeFileListResp, resp))
+				}(req)
+			}
+
+		case protocol.TypeFileDownloadReq:
+			raw, _ := json.Marshal(env.Payload)
+			var req protocol.FileDownloadReqPayload
+			if err := json.Unmarshal(raw, &req); err == nil {
+				go func(r protocol.FileDownloadReqPayload) {
+					chunkData, isEOF, err := filemgr.ReadChunk(r.Path, r.Offset, r.ChunkSize)
+					errMsg := ""
+					if err != nil {
+						errMsg = err.Error()
+					}
+					resp := protocol.FileDownloadChunkPayload{
+						RequestID: r.RequestID,
+						Offset:    r.Offset,
+						Data:      chunkData,
+						IsEOF:     isEOF,
+						Error:     errMsg,
+					}
+					_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeFileDownloadChunk, resp))
+				}(req)
+			}
+
+		case protocol.TypeFileUploadChunk:
+			raw, _ := json.Marshal(env.Payload)
+			var req protocol.FileUploadChunkPayload
+			if err := json.Unmarshal(raw, &req); err == nil {
+				go func(r protocol.FileUploadChunkPayload) {
+					err := filemgr.WriteChunk(r.Path, r.Offset, r.Data, r.IsLast)
+					errMsg := ""
+					success := true
+					if err != nil {
+						errMsg = err.Error()
+						success = false
+					}
+					resp := protocol.FileUploadRespPayload{
+						RequestID: r.RequestID,
+						Success:   success,
+						Error:     errMsg,
+					}
+					_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeFileUploadResp, resp))
+				}(req)
+			}
+
+		case protocol.TypeFileActionReq:
+			raw, _ := json.Marshal(env.Payload)
+			var req protocol.FileActionReqPayload
+			if err := json.Unmarshal(raw, &req); err == nil {
+				go func(r protocol.FileActionReqPayload) {
+					err := filemgr.Action(r.Action, r.Path)
+					errMsg := ""
+					success := true
+					if err != nil {
+						errMsg = err.Error()
+						success = false
+					}
+					resp := protocol.FileActionRespPayload{
+						RequestID: r.RequestID,
+						Success:   success,
+						Error:     errMsg,
+					}
+					_ = c.sendEnvelope(conn, protocol.NewEnvelope(protocol.TypeFileActionResp, resp))
+				}(req)
 			}
 
 		default:
