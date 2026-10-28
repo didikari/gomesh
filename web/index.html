@@ -305,6 +305,65 @@
           </div>
         </div>
 
+        <!-- Smart Roaming & Hybrid Server Endpoints Configuration -->
+        <div class="p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="shuffle" class="w-4 h-4 text-emerald-400"></i> Smart Roaming Dual-Network (LAN + Internet)
+              </h4>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Agent otomatis cerdas: saat di kantor menggunakan <strong>LAN</strong> (kecepatan maksimal & hemat kuota), saat user pulang ke rumah otomatis pindah ke <strong>Internet / Cloudflare</strong>.
+              </p>
+            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1">
+              <i data-lucide="zap" class="w-3 h-3"></i> Auto-Switching
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <!-- Primary: Local LAN Address -->
+            <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                  <i data-lucide="wifi" class="w-3.5 h-3.5"></i> 1. Prioritas 1: Jaringan Kantor (LAN)
+                </label>
+                <span id="badge-lan-detected" class="text-[10px] text-emerald-400/80 font-mono bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800/30">Auto-detected</span>
+              </div>
+              <input type="text" id="target-lan-input" oninput="updateInstallCommands()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 font-mono focus:outline-none focus:border-emerald-500" placeholder="192.168.1.5:8080" />
+              <!-- Multi-IP suggestions for MikroTik / Multi-VLAN routers -->
+              <div id="lan-ip-chips" class="hidden flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
+                <span class="text-slate-400 font-medium">Interface Router:</span>
+                <div id="lan-ip-chips-container" class="flex flex-wrap gap-1"></div>
+              </div>
+              <p class="text-[10px] text-slate-500 leading-tight">Digunakan saat user di kantor (bisa beda VLAN/ethernet selama di-routing oleh MikroTik).</p>
+            </div>
+
+            <!-- Fallback: Public / Cloudflare / VPS -->
+            <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-bold text-sky-400 flex items-center gap-1">
+                  <i data-lucide="globe" class="w-3.5 h-3.5"></i> 2. Prioritas 2: Luar Kantor (Cloudflare / Public)
+                </label>
+                <span class="text-[10px] text-sky-400/80 font-mono bg-sky-950/40 px-1.5 py-0.5 rounded border border-sky-800/30">Luar Jaringan</span>
+              </div>
+              <input type="text" id="target-public-input" oninput="updateInstallCommands()" class="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-sky-300 font-mono focus:outline-none focus:border-sky-500" placeholder="e.g. mymesh.trycloudflare.com or 203.0.113.10:8080" />
+              <p class="text-[10px] text-slate-500 leading-tight">Digunakan saat user pulang ke rumah / remote luar kantor.</p>
+            </div>
+          </div>
+
+          <!-- Localhost Warning Banner (Shown if LAN address contains localhost/127.0.0.1 and no public set) -->
+          <div id="localhost-warning-banner" class="hidden p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 flex items-start gap-2.5">
+            <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i>
+            <div class="space-y-1">
+              <span class="font-bold block">Peringatan: Alamat LAN masih localhost!</span>
+              <p class="text-[11px] text-amber-300/80 leading-relaxed">
+                Komputer lain tidak bisa menghubungi <code class="bg-slate-900 px-1 py-0.5 rounded text-amber-200">localhost</code>. Masukkan IP LAN server (klik saran: <code id="quick-lan-ip" class="bg-slate-900 px-1 rounded text-emerald-300 cursor-pointer underline" onclick="applyDetectedLAN()">192.168.1.5:8080</code>) atau isi Fallback Internet di atas.
+              </p>
+            </div>
+          </div>
+        </div>
+
         <!-- Direct 1-Click Installer Download Cards -->
         <div>
           <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3 flex items-center gap-2">
@@ -320,11 +379,11 @@
                 <p class="text-[11px] text-slate-400">Windows 10, 11, Windows Server (64-bit). Bebas antivirus warning.</p>
               </div>
               <div class="mt-4 space-y-2">
-                <a id="btn-dl-win-bat" href="/api/download/installer/windows-bat" download="install-gomesh.bat" class="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-sky-600/20 transition-all">
-                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download 1-Click (.bat)
+                <a id="btn-dl-win-exe" href="/bin/gomesh-agent.exe" download="gomesh-agent.exe" class="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-sky-600/20 transition-all">
+                  <i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Download Auto-Run .exe (Siap Pakai)
                 </a>
-                <a href="/bin/gomesh-agent.exe" download="gomesh-agent.exe" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
-                  <i data-lucide="file-down" class="w-3.5 h-3.5"></i> Standalone .exe (6.2 MB)
+                <a id="btn-dl-win-bat" href="/api/download/installer/windows-bat" download="install-gomesh.bat" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Installer Service .bat
                 </a>
               </div>
             </div>
@@ -338,11 +397,11 @@
                 <p class="text-[11px] text-slate-400">Ubuntu, Debian, RHEL, CentOS. Terintegrasi dengan systemd service.</p>
               </div>
               <div class="mt-4 space-y-2">
-                <a id="btn-dl-linux-sh" href="/api/download/installer/linux-sh" download="install-gomesh.sh" class="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-600/20 transition-all">
-                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download 1-Click (.sh)
+                <a id="btn-dl-linux-bin" href="/bin/gomesh-agent-linux" download="gomesh-agent-linux" class="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md shadow-amber-600/20 transition-all">
+                  <i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Download Auto-Run Binary
                 </a>
-                <a href="/bin/gomesh-agent-linux" download="gomesh-agent-linux" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
-                  <i data-lucide="file-down" class="w-3.5 h-3.5"></i> Standalone Binary (6.7 MB)
+                <a id="btn-dl-linux-sh" href="/api/download/installer/linux-sh" download="install-gomesh.sh" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Installer Service .sh
                 </a>
               </div>
             </div>
@@ -356,11 +415,11 @@
                 <p class="text-[11px] text-slate-400">macOS Monterey, Ventura, Sonoma, Sequoia (Apple Silicon & Intel).</p>
               </div>
               <div class="mt-4 space-y-2">
-                <a id="btn-dl-macos-sh" href="/api/download/installer/macos-sh" download="install-gomesh-macos.sh" class="w-full py-2 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all">
-                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download 1-Click (.sh)
+                <a id="btn-dl-macos-bin" href="/bin/gomesh-agent" download="gomesh-agent" class="w-full py-2 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all">
+                  <i data-lucide="play-circle" class="w-3.5 h-3.5"></i> Download Auto-Run Binary
                 </a>
-                <a href="/bin/gomesh-agent" download="gomesh-agent" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
-                  <i data-lucide="file-down" class="w-3.5 h-3.5"></i> Standalone Binary (5.5 MB)
+                <a id="btn-dl-macos-sh" href="/api/download/installer/macos-sh" download="install-gomesh-macos.sh" class="w-full py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] flex items-center justify-center gap-1.5 border border-slate-700 transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Installer LaunchDaemon .sh
                 </a>
               </div>
             </div>
@@ -783,6 +842,7 @@
     let desktopControlEnabled = false;
     let currentNativeWidth = 1920;
     let currentNativeHeight = 1080;
+    let desktopLoadingTimer = null;
 
     let pending2FAToken = null;
     let currentSetupSecret = '';
@@ -1253,33 +1313,92 @@
       }
     }
 
+    function setSuggestedServer(addr) {
+      const input = document.getElementById('target-server-input');
+      if (input) {
+        input.value = addr;
+        updateInstallCommands();
+        showToast(`Alamat server disetel ke: ${addr}`, 'success');
+      }
+    }
+
+    let detectedLANHost = '';
+
     function updateInstallCommands() {
-      const host = window.location.host;
-      const protocol = window.location.protocol;
-      const wsProto = protocol === 'https:' ? 'wss:' : 'ws:';
-      const httpBase = `${protocol}//${host}`;
-      const wsUrl = `${wsProto}//${host}/ws/agent`;
+      const lanInput = document.getElementById('target-lan-input');
+      const pubInput = document.getElementById('target-public-input');
       const targetGroup = (document.getElementById('target-group-input')?.value || 'Default').trim();
+
+      let lanHost = (lanInput && lanInput.value.trim()) || '';
+      let pubHost = (pubInput && pubInput.value.trim()) || '';
+
+      // Clean protocol prefixes
+      lanHost = lanHost.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '').replace(/\/+$/, '');
+      pubHost = pubHost.replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '').replace(/\/+$/, '');
+
+      function makeWS(h) {
+        if (!h) return '';
+        const isSecure = h.includes('.trycloudflare.com') || h.includes('.ngrok') || window.location.protocol === 'https:';
+        return `${isSecure ? 'wss:' : 'ws:'}//${h}/ws/agent`;
+      }
+      function makeHTTP(h) {
+        if (!h) return '';
+        const isSecure = h.includes('.trycloudflare.com') || h.includes('.ngrok') || window.location.protocol === 'https:';
+        return `${isSecure ? 'https:' : 'http:'}//${h}`;
+      }
+
+      const lanWS = makeWS(lanHost);
+      const pubWS = makeWS(pubHost);
+      const lanHTTP = makeHTTP(lanHost || window.location.host);
+
+      // Build endpoints list
+      const endpointsList = [];
+      if (lanWS) endpointsList.push(lanWS);
+      if (pubWS) endpointsList.push(pubWS);
+      if (endpointsList.length === 0) endpointsList.push(`ws://${window.location.host}/ws/agent`);
+
+      const endpointsParam = encodeURIComponent(endpointsList.join(','));
+      const lanParam = lanWS ? `&lan_server=${encodeURIComponent(lanWS)}` : '';
+      const pubParam = pubWS ? `&public_server=${encodeURIComponent(pubWS)}` : '';
+
+      // Show/hide localhost warning if LAN is localhost and no Public fallback
+      const warnBanner = document.getElementById('localhost-warning-banner');
+      if (warnBanner) {
+        if ((lanHost.includes('localhost') || lanHost.includes('127.0.0.1')) && !pubHost) {
+          warnBanner.classList.remove('hidden');
+        } else {
+          warnBanner.classList.add('hidden');
+        }
+      }
 
       document.getElementById('token-display').innerText = activeToken;
 
-      // Update 1-Click Download URLs
-      document.getElementById('btn-dl-win-bat').href = 
-        `/api/download/installer/windows-bat?token=${encodeURIComponent(activeToken)}&group=${encodeURIComponent(targetGroup)}`;
-      document.getElementById('btn-dl-linux-sh').href = 
-        `/api/download/installer/linux-sh?token=${encodeURIComponent(activeToken)}&group=${encodeURIComponent(targetGroup)}`;
-      document.getElementById('btn-dl-macos-sh').href = 
-        `/api/download/installer/macos-sh?token=${encodeURIComponent(activeToken)}&group=${encodeURIComponent(targetGroup)}`;
+      // Query string with Smart Roaming parameters baked in!
+      const dlQuery = `token=${encodeURIComponent(activeToken)}&group=${encodeURIComponent(targetGroup)}&endpoints=${endpointsParam}${lanParam}${pubParam}`;
 
-      // Update Terminal One-Liners
+      // Update Auto-Running Standalone Binaries (with baked-in configuration overlay)
+      const winExeBtn = document.getElementById('btn-dl-win-exe');
+      if (winExeBtn) winExeBtn.href = `/bin/gomesh-agent.exe?${dlQuery}`;
+      const linuxBinBtn = document.getElementById('btn-dl-linux-bin');
+      if (linuxBinBtn) linuxBinBtn.href = `/bin/gomesh-agent-linux?${dlQuery}`;
+      const macosBinBtn = document.getElementById('btn-dl-macos-bin');
+      if (macosBinBtn) macosBinBtn.href = `/bin/gomesh-agent?${dlQuery}`;
+
+      // 1-Click Installers
+      document.getElementById('btn-dl-win-bat').href = `/api/download/installer/windows-bat?${dlQuery}`;
+      document.getElementById('btn-dl-linux-sh').href = `/api/download/installer/linux-sh?${dlQuery}`;
+      document.getElementById('btn-dl-macos-sh').href = `/api/download/installer/macos-sh?${dlQuery}`;
+
+      // Terminal One-Liners (with multi-endpoints parameter for smart roaming)
+      const epsFlag = endpointsList.length > 1 ? ` -e "${endpointsList.join(',')}"` : '';
       document.getElementById('cmd-linux').innerText = 
-        `curl -sSL ${httpBase}/scripts/install-linux.sh | sudo bash -s -- -s ${wsUrl} -t ${activeToken}`;
+        `curl -sSL "${lanHTTP}/scripts/install-linux.sh" | sudo bash -s -- -s "${endpointsList[0]}" -t "${activeToken}" -g "${targetGroup}"${epsFlag}`;
 
       document.getElementById('cmd-windows').innerText = 
-        `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri ${httpBase}/scripts/install-windows.ps1 -OutFile install.ps1; .\\install.ps1 -ServerUrl ${wsUrl} -Token ${activeToken}"`;
+        `powershell -ExecutionPolicy Bypass -Command "Invoke-WebRequest -Uri '${lanHTTP}/scripts/install-windows.ps1' -OutFile install.ps1; .\\install.ps1 -ServerUrl '${endpointsList[0]}' -Token '${activeToken}' -Group '${targetGroup}'"`;
 
       document.getElementById('cmd-macos').innerText = 
-        `curl -sSL ${httpBase}/scripts/install-macos.sh | sudo bash -s -- -s ${wsUrl} -t ${activeToken}`;
+        `curl -sSL "${lanHTTP}/scripts/install-macos.sh" | sudo bash -s -- -s "${endpointsList[0]}" -t "${activeToken}" -g "${targetGroup}"${epsFlag}`;
     }
 
     function selectInstallTab(os) {
@@ -1297,10 +1416,73 @@
       lucide.createIcons();
     }
 
-    function openInstallModal() {
+    async function openInstallModal() {
+      const lanInput = document.getElementById('target-lan-input');
+      const pubInput = document.getElementById('target-public-input');
+
+      try {
+        const res = await fetch('/api/server/network');
+        if (res.ok) {
+          const netInfo = await res.json();
+          if (netInfo.primary_lan_ip) {
+            detectedLANHost = `${netInfo.primary_lan_ip}:${netInfo.port || 8080}`;
+            const quickLan = document.getElementById('quick-lan-ip');
+            if (quickLan) quickLan.innerText = detectedLANHost;
+            if (lanInput && (!lanInput.value || lanInput.value.includes('localhost') || lanInput.value.includes('127.0.0.1'))) {
+              lanInput.value = detectedLANHost;
+            }
+          }
+
+          // Populate MikroTik / Multi-VLAN router interface chips if multiple IPs exist
+          if (netInfo.lan_ips && netInfo.lan_ips.length > 0) {
+            const chipsDiv = document.getElementById('lan-ip-chips');
+            const chipsContainer = document.getElementById('lan-ip-chips-container');
+            if (chipsDiv && chipsContainer) {
+              chipsContainer.innerHTML = netInfo.lan_ips.map(ip => {
+                const target = `${ip}:${netInfo.port || 8080}`;
+                return `<button type="button" onclick="selectSuggestedLAN('${target}')" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-emerald-950 hover:text-emerald-300 border border-slate-700 text-slate-300 font-mono transition-colors text-[10px]">${target}</button>`;
+              }).join('');
+              chipsDiv.classList.remove('hidden');
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Network discovery error:', e);
+      }
+
+      if (lanInput && !lanInput.value) {
+        lanInput.value = window.location.host;
+      }
+
+      // If current browser host is a public domain or tunnel, auto-populate public input
+      if (pubInput && !pubInput.value) {
+        const host = window.location.host;
+        if (!host.includes('localhost') && !host.includes('127.0.0.1') && !host.startsWith('192.168.') && !host.startsWith('10.')) {
+          pubInput.value = host;
+        }
+      }
+
       updateInstallCommands();
       document.getElementById('install-modal').classList.remove('hidden');
       lucide.createIcons();
+    }
+
+    function selectSuggestedLAN(target) {
+      const lanInput = document.getElementById('target-lan-input');
+      if (lanInput) {
+        lanInput.value = target;
+        updateInstallCommands();
+      }
+    }
+
+    function applyDetectedLAN() {
+      if (detectedLANHost) {
+        const lanInput = document.getElementById('target-lan-input');
+        if (lanInput) {
+          lanInput.value = detectedLANHost;
+          updateInstallCommands();
+        }
+      }
     }
 
     function closeInstallModal() {
@@ -1505,6 +1687,13 @@
         tbody.innerHTML = filtered.map(d => {
           const isOnline = d.status === 'online';
           const groupName = d.group_name || 'Default';
+          const isLAN = (d.connection_mode || '').toUpperCase() === 'LAN';
+
+          const connBadge = isOnline ? (
+            isLAN
+              ? `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20" title="Terhubung langsung via jaringan kantor (LAN)"><i data-lucide="wifi" class="w-2.5 h-2.5"></i> LAN</span>`
+              : `<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20" title="Terhubung dari luar kantor via Internet / Cloudflare"><i data-lucide="globe" class="w-2.5 h-2.5"></i> WAN</span>`
+          ) : '';
 
           const statusBadge = isOnline
             ? `<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><span class="h-1.5 w-1.5 rounded-full bg-emerald-400 pulse-dot"></span> Online</span>`
@@ -1538,8 +1727,11 @@
               </td>
               <td class="py-3.5 px-4 font-mono text-xs text-slate-300">${d.arch}</td>
               <td class="py-3.5 px-4 font-mono text-xs">
-                <div class="text-slate-200">${d.internal_ip || '-'}</div>
-                <div class="text-slate-500 text-[10px]">${d.public_ip || ''}</div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-slate-200">${d.internal_ip || '-'}</span>
+                  ${connBadge}
+                </div>
+                <div class="text-slate-500 text-[10px] truncate max-w-[150px]">${d.public_ip || ''}</div>
               </td>
               <td class="py-3.5 px-4">${cpuBar}</td>
               <td class="py-3.5 px-4 text-xs text-slate-400">${timeAgo(d.last_seen_at)}</td>
@@ -1887,6 +2079,23 @@
       desktopControlEnabled = false;
       updateControlUI();
 
+      if (desktopLoadingTimer) clearTimeout(desktopLoadingTimer);
+      desktopLoadingTimer = setTimeout(() => {
+        if (!loading.classList.contains('hidden')) {
+          metrics.innerText = 'Menunggu display stream...';
+          loading.innerHTML = `
+            <div class="text-center p-4 max-w-sm space-y-2">
+              <i data-lucide="alert-triangle" class="w-8 h-8 text-amber-400 mx-auto"></i>
+              <p class="text-sm font-semibold text-white">Belum Ada Frame Diterima</p>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                Jika komputer target adalah macOS, pastikan izin <strong>Screen Recording</strong> telah diaktifkan di <strong>System Settings > Privacy & Security > Screen Recording</strong>.
+              </p>
+            </div>
+          `;
+          lucide.createIcons();
+        }
+      }, 5000);
+
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = `${protocol}//${window.location.host}/ws/desktop?device_id=${deviceID}`;
 
@@ -1900,6 +2109,7 @@
         try {
           const frame = JSON.parse(event.data);
           if (frame && frame.data) {
+            clearTimeout(desktopLoadingTimer);
             loading.classList.add('hidden');
             const img = new Image();
             img.onload = () => {
@@ -1928,6 +2138,7 @@
       };
 
       activeDesktopWS.onclose = () => {
+        clearTimeout(desktopLoadingTimer);
         metrics.innerText = 'Stream disconnected';
         loading.classList.remove('hidden');
         loading.innerHTML = `<p class="text-rose-400 font-medium">Sesi Desktop Berakhir</p>`;
@@ -2036,6 +2247,10 @@
     }
 
     function closeDesktopModal() {
+      if (desktopLoadingTimer) {
+        clearTimeout(desktopLoadingTimer);
+        desktopLoadingTimer = null;
+      }
       const modal = document.getElementById('desktop-modal');
       modal.classList.add('hidden');
       if (activeDesktopWS) {

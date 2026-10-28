@@ -75,12 +75,23 @@ Goal: Pengamanan sistem dan deployment readiness.
 - [x] Device Grouping & Filtering: Kolom `group_name` di database, tab filter group dinamis di web dashboard, dialog pemindahan group instan, dan flag `-group` pada agen (`PASS` pada `TestDeviceGrouping`).
 - [x] Direct Web Installer Downloads: Endpoint download installer 1-klik langsung dari browser (`/api/download/installer/windows-bat`, `/api/download/installer/linux-sh`, `/api/download/installer/macos-sh`) serta download langsung binary standalone (`gomesh-agent.exe`, `gomesh-agent-linux`, `gomesh-agent`).
 - [x] Modern UI Toast & Custom Modal System: Menggantikan seluruh `window.alert()`, `window.confirm()`, dan `window.prompt()` bawaan browser dengan custom floating Toast notifications (`showToast()`), custom confirmation modal (`showConfirmModal()`), dan custom prompt modal (`showPromptModal()`) berdesain dark-mode modern Tailwind CSS.
-- [x] Two-Factor Authentication (RFC 6238 TOTP 2FA): Autentikasi 2FA murni standar Go (`crypto/hmac`, `crypto/sha1`) tanpa dependensi berat pihak ketiga. Kompatibel penuh dengan Google Authenticator, Authy, dan Microsoft Authenticator, lengkap dengan QR Code setup, input verifikasi 6 digit, pending 2FA token temporary session, serta UI aktivasi/deaktivasi di Web Console (`PASS` pada `TestTwoFactorAuthenticationFlow`).
+- [x] Two-Factor Authentication (RFC 6238 TOTP 2FA): Autentikasi 2FA murni standar Go (`crypto/hmac`, `crypto/sha1`) tanpa dependensi berat pihak ketiga. Kompatibel penuh dengan Google Authenticator, Authy, dan Microsoft Authenticator, lengkap dengan QR Code setup (offline data URI PNG), input verifikasi 6 digit, pending 2FA token temporary session, serta UI aktivasi/deaktivasi di Web Console (`PASS` pada `TestTwoFactorAuthenticationFlow`).
+- [x] Zero-Config Auto-Running Agent (Binary Overlay): Pengunduhan binary agent langsung dari Web Console dengan konfigurasi server, token, dan group yang otomatis disematkan (*baked-in configuration overlay*). Client cukup men-download dan melakukan double-click pada file `.exe` (atau binary Linux/Mac) tanpa perlu install, tanpa terminal, dan tanpa parameter flags (`PASS` pada `TestOverlayConfigAppendAndRead` & `TestDirectDownloadsAndEmbeddedScripts`).
+
+### Phase 6 — Smart Roaming Dual-Network & Zero-Install Auto-Run [SELESAI]
+Goal: Roaming otomatis cerdas antara jaringan lokal kantor (LAN) dan luar kantor (Cloudflare Tunnel / IP Publik).
+- [x] Multi-Endpoint Failover Engine (`internal/agent/client.go`): Agen menyimpan daftar endpoint terurut (Priority 1: LAN kantor, Priority 2+: Cloudflare/IP Publik).
+- [x] Fast-Failover Handshake (3 detik timeout): Saat agen di rumah/luar kantor, koneksi ke IP LAN lokal kantor gagal cepat dalam 3 detik dan langsung melompat ke Cloudflare/IP Publik tanpa freeze.
+- [x] Background Prober Otomatis: Saat agen terhubung via internet (WAN), prober di latar belakang memeriksa `GET /api/health` ke endpoint LAN kantor setiap 30 detik. Saat user membawa laptop kembali ke kantor, agen secara otomatis mendeteksi LAN lokal dan beralih langsung ke mode LAN berkecepatan tinggi (60 FPS & hemat kuota).
+- [x] Network Discovery API (`GET /api/server/network` & `GET /api/health`): Server otomatis mengenali alamat IP LAN non-loopback dan mengeksposnya ke Web Console.
+- [x] Dynamic Dual-Network Binary Embedding: Binary `.exe` yang diunduh langsung disematkan endpoint LAN dan endpoint Cloudflare sekaligus.
+- [x] Web Console Monitoring Badge (`[LAN]` vs `[WAN]`): Tabel perangkat secara real-time menampilkan badge koneksi (`🟢 LAN` jika terhubung langsung dari kantor, `🌐 WAN` jika terhubung dari luar kantor via internet).
+
 Success criteria:
 - [x] Multi-user RBAC aktif (`PASS` pada `TestSessionManagerLifecycle` & `TestAuthMiddleware`).
 - [x] Pendaftaran agen dan validasi enrollment token terverifikasi (`PASS` pada `TestAuthAndTokenEnrollment`).
-- [x] Agent dapat diinstal dengan single command script (Linux systemd, Windows PowerShell, macOS launchd) atau langsung diunduh dari web browser.
-- [x] Device dapat dikelompokkan ke dalam group (misal: "Group A", "Office", "Servers") dan difilter pada web console.
+- [x] Smart Roaming dual-network teruji dan tervalidasi (`PASS` pada `TestClientEndpointFailover` & `TestDirectDownloadsAndEmbeddedScripts`).
+- [x] Agent dapat langsung dijalankan dengan double click `.exe` tanpa CMD, otomatis beralih LAN/WAN sesuai lokasi user.
 
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
