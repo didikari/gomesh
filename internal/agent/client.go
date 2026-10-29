@@ -23,6 +23,7 @@ import (
 	"gomesh/internal/agent/machineid"
 	"gomesh/internal/agent/pty"
 	"gomesh/internal/protocol"
+	"gomesh/internal/version"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -87,7 +88,7 @@ func NewClient(serverURL string, configDir string) (*Client, error) {
 	return &Client{
 		cfg:         cfg,
 		cfgPath:     cfgPath,
-		version:     "0.1.0",
+		version:     version.Get(),
 		startTime:   time.Now(),
 		ptySessions: make(map[string]pty.PTY),
 	}, nil

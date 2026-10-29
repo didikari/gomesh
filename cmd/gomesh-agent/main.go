@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -11,6 +12,7 @@ import (
 
 	"gomesh/internal/agent"
 	"gomesh/internal/agent/embeddedcfg"
+	"gomesh/internal/version"
 )
 
 func main() {
@@ -21,7 +23,13 @@ func main() {
 	configDir := flag.String("config", ".", "Path to store agent persistent identity")
 	foreground := flag.Bool("foreground", false, "Run in foreground/console mode (disable self-installation and console hiding)")
 	uninstallFlag := flag.Bool("uninstall", false, "Uninstall and stop all GoMesh background agent instances")
+	showVersion := flag.Bool("version", false, "Print agent version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("GoMesh Agent %s\n", version.Get())
+		return
+	}
 
 	if *uninstallFlag {
 		uninstallAgent()
@@ -32,6 +40,8 @@ func main() {
 		Level: slog.LevelInfo,
 	}))
 	slog.SetDefault(logger)
+
+	slog.Info("starting GoMesh Agent", "version", version.Get())
 
 	// 1. Read baked-in configuration from executable overlay if present
 	embedded := embeddedcfg.ReadFromCurrentExecutable()

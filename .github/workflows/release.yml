@@ -28,10 +28,15 @@ jobs:
         run: |
           mkdir -p dist
 
-          LDFLAGS="-s -w"
-          GUI_LDFLAGS="-s -w -H=windowsgui"
+          RELEASE_TAG="${GITHUB_REF_NAME:-v0.1.7}"
+          GIT_COMMIT="${GITHUB_SHA:-none}"
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VERSION_FLAGS="-X gomesh/internal/version.Version=${RELEASE_TAG} -X gomesh/internal/version.GitCommit=${GIT_COMMIT} -X gomesh/internal/version.BuildDate=${BUILD_DATE}"
 
-          echo "[*] Building Server Binaries..."
+          LDFLAGS="-s -w ${VERSION_FLAGS}"
+          GUI_LDFLAGS="-s -w -H=windowsgui ${VERSION_FLAGS}"
+
+          echo "[*] Building Server Binaries with Version: ${RELEASE_TAG}..."
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o dist/gomesh-linux-amd64 ./cmd/gomesh
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o dist/gomesh-linux-arm64 ./cmd/gomesh
           CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o dist/gomesh-windows-amd64.exe ./cmd/gomesh
