@@ -88,37 +88,45 @@ func checkAndSelfInstall(isService bool, foreground bool) (shouldExit bool) {
 		return false
 	}
 
-	// Register Auto-Start
 	serviceInstalled := false
-
-	// Attempt 1: Native Windows Service (sc.exe)
 	binPathArg := fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir)
-	scCmd := exec.Command("sc.exe", "create", "GoMeshAgent", "binPath=", binPathArg, "start=", "auto", "DisplayName=", "GoMesh Remote Management Agent")
-	scCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	if err := scCmd.Run(); err == nil {
-		_ = exec.Command("sc.exe", "description", "GoMeshAgent", "GoMesh background agent for secure remote device management.").Run()
-		_ = exec.Command("sc.exe", "failure", "GoMeshAgent", "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000").Run()
+
+	queryCmd := exec.Command("sc.exe", "query", "GoMeshAgent")
+	queryCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if queryCmd.Run() == nil {
+		cfgCmd := exec.Command("sc.exe", "config", "GoMeshAgent", "binPath=", binPathArg)
+		cfgCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		_ = cfgCmd.Run()
+
 		startCmd := exec.Command("sc.exe", "start", "GoMeshAgent")
 		startCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		if err := startCmd.Run(); err == nil {
-			serviceInstalled = true
-			slog.Info("registered and started as Windows Service successfully")
+		_ = startCmd.Run()
+		serviceInstalled = true
+		slog.Info("updated and started existing Windows Service GoMeshAgent successfully")
+	} else {
+		scCmd := exec.Command("sc.exe", "create", "GoMeshAgent", "binPath=", binPathArg, "start=", "auto", "DisplayName=", "GoMesh Remote Management Agent")
+		scCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		if err := scCmd.Run(); err == nil {
+			_ = exec.Command("sc.exe", "description", "GoMeshAgent", "GoMesh background agent for secure remote device management.").Run()
+			_ = exec.Command("sc.exe", "failure", "GoMeshAgent", "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000").Run()
+			startCmd := exec.Command("sc.exe", "start", "GoMeshAgent")
+			startCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+			if err := startCmd.Run(); err == nil {
+				serviceInstalled = true
+				slog.Info("registered and started as Windows Service successfully")
+			}
 		}
 	}
 
-	// Attempt 2: Fallback Auto-Start (Task Scheduler & Registry Run)
 	if !serviceInstalled {
-		// Task Scheduler: on logon, highest privileges, hidden
 		schCmd := exec.Command("schtasks.exe", "/create", "/tn", "GoMeshAgent", "/tr", fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir), "/sc", "onlogon", "/rl", "highest", "/f")
 		schCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 		_ = schCmd.Run()
 
-		// Registry Run key
 		regCmd := exec.Command("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "GoMeshAgent", "/t", "REG_SZ", "/d", fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir), "/f")
 		regCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
 		_ = regCmd.Run()
 
-		// Start detached background process right now
 		runCmd := exec.Command(targetExe, "-config", targetDir)
 		runCmd.SysProcAttr = &syscall.SysProcAttr{
 			HideWindow:    true,

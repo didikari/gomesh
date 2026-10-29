@@ -1737,14 +1737,17 @@
               <td class="py-3.5 px-4 text-xs text-slate-400">${timeAgo(d.last_seen_at)}</td>
               <td class="py-3.5 px-4 text-right">
                 <div class="flex items-center justify-end gap-1.5">
-                  <button onclick="openDesktop('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
+                  <button onclick="openDesktop('${d.id}', '${escapeQuotes(d.hostname)}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-600/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
                     <i data-lucide="layout" class="w-3.5 h-3.5"></i> Desktop
                   </button>
-                  <button onclick="openFilesModal('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
+                  <button onclick="openFilesModal('${d.id}', '${escapeQuotes(d.hostname)}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 hover:bg-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold inline-flex items-center gap-1.5 transition-all">
                     <i data-lucide="folder" class="w-3.5 h-3.5"></i> Files
                   </button>
-                  <button onclick="openTerminal('${d.id}', '${d.hostname}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm transition-all">
+                  <button onclick="openTerminal('${d.id}', '${escapeQuotes(d.hostname)}')" ${!isOnline ? 'disabled' : ''} class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm transition-all">
                     <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Shell
+                  </button>
+                  <button onclick="deleteDevice('${d.id}', '${escapeQuotes(d.hostname)}')" title="Hapus perangkat dari GoMesh" class="p-1.5 rounded-lg bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/25 hover:text-rose-300 text-xs font-semibold inline-flex items-center justify-center transition-all ml-1">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
                   </button>
                 </div>
               </td>
@@ -1754,6 +1757,31 @@
       }
 
       lucide.createIcons();
+    }
+
+    async function deleteDevice(id, hostname) {
+      const confirmed = await showConfirmModal({
+        title: 'Hapus Perangkat',
+        message: `Apakah Anda yakin ingin menghapus perangkat "${hostname}" (${id.substring(0, 8)}) dari daftar GoMesh? Riwayat audit sesi perangkat ini juga akan dihapus.`,
+        confirmText: 'Hapus Sekarang',
+        cancelText: 'Batal',
+        isDanger: true,
+      });
+      if (!confirmed) return;
+
+      try {
+        const res = await fetch(`/api/devices/${id}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(errText || 'Gagal menghapus perangkat');
+        }
+        showToast(`Perangkat ${hostname} berhasil dihapus`, 'success');
+        fetchDevices();
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
     }
 
     // --- INTERACTIVE TERMINAL ---

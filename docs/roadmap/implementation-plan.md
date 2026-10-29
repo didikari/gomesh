@@ -104,6 +104,36 @@ Success criteria:
 - [x] User Linux VPS dapat menjalankan server dengan 1 baris perintah `curl ... | sudo bash` tanpa menyentuh compiler Go.
 - [x] User Docker dapat menjalankan `docker run` atau `docker compose up -d` langsung dari image container.
 
+### Phase 8 — High-Performance Remote Desktop ("Sat-Set" Engine) [SELESAI]
+Goal: Mengoptimalkan performa remote desktop agar sangat responsif, lancar, dan mendukung native input di Windows, Linux, dan macOS.
+- [x] FNV-1a Fast Frame Differencing (`internal/agent/desktop/capture.go`): Melewatkan frame yang identik (< 0.2ms overhead), memangkas beban CPU dan bandwidth jaringan hingga 80%.
+- [x] Dynamic Frame Pacing & Quality Tuning: Penurunan encode quality ke 45 dan target 25 FPS dengan sleep dinamis 10-15ms agar I/O socket dan handling input tidak terblokir.
+- [x] Off-Thread GPU Image Decoding (`web/index.html`): Menggantikan `img.src = URL.createObjectURL` dengan `createImageBitmap(blob)` untuk rendering asinkronus langsung di kartu grafis tanpa jank di main UI thread.
+- [x] Cross-Platform Calibrated Native Input:
+  - Windows: Perbaikan scroll wheel (`WHEEL_DELTA` 120, DWORD casting, sinkronisasi `SetCursorPos` sebelum wheel).
+  - Linux: Pure-Go X11 / XTest input injector via `github.com/jezek/xgb/xtest` dengan fallback CLI `xdotool`.
+  - macOS: Driver AppleScript (`osascript`) dan CLI `cliclick` untuk native mouse, keyboard, dan scroll injection.
+- [x] Default Natural Pointer & Throttled Mousemove: Mengubah kursor canvas dari `+` (crosshair) menjadi arrow standar, membatasi frekuensi mousemove ke 50ms dengan koordinat integer bulat, dan menambahkan toast reminder jika mengklik saat mode View-Only.
+
+### Phase 9 — Device Lifecycle & Anti-Duplicate Hardware Identity [SELESAI]
+Goal: Manajemen siklus hidup perangkat lengkap dengan penghapusan perangkat dan pencegahan duplikasi komputer target.
+- [x] Device Deletion Subsystem:
+  - SQLite Store: `DeleteDevice(ctx, id)` menghapus rekaman perangkat dan cascade membersihkan data `session_audits`.
+  - Hub Session Teardown: `DisconnectDevice(deviceID)` menutup paksa seluruh koneksi WebSocket aktif (agent, terminal, desktop).
+  - REST Endpoint: `DELETE /api/devices/{id}` terproteksi RBAC middleware.
+  - Web Console UI: Tombol hapus (icon trash merah) di setiap baris tabel perangkat dengan modal konfirmasi interaktif Tailwind (`showConfirmModal`) dan notifikasi toast.
+- [x] Deterministic OS Hardware Identity (`internal/agent/machineid/`):
+  - Windows: Membaca `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`.
+  - Linux: Membaca `/etc/machine-id` atau `/var/lib/dbus/machine-id`.
+  - macOS: Membaca `IOPlatformUUID` via IORegistry.
+  - Menjamin satu komputer fisik selalu memiliki satu `HardwareUUID` unik, terlepas dari direktori atau cara agent dijalankan.
+- [x] Single-Instance Process Mutex:
+  - Windows: Mutex tingkat sistem `Global\GoMeshAgentSingleInstanceLock` via Win32 `CreateMutexW`.
+  - Unix: Advisory file lock (`flock`) pada `/tmp/gomesh-agent.lock`.
+  - Mencegah lebih dari 1 proses agent berjalan bersamaan di komputer klien yang sama.
+- [x] Windows Service Auto-Detection:
+  - Mengecek keberadaan service `GoMeshAgent` yang sudah ada via `sc.exe query`. Jika sudah ada, memperbarui binary path tanpa men-trigger fallback detached process yang memicu duplikasi.
+
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
 |---|---|---|---|

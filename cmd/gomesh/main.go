@@ -710,6 +710,23 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -e '%s' -t '%s' -g 
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "group": req.Group})
 	}))
 
+	mux.HandleFunc("DELETE /api/devices/{id}", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			http.Error(w, "missing device id", http.StatusBadRequest)
+			return
+		}
+
+		h.DisconnectDevice(id)
+		if err := st.DeleteDevice(r.Context(), id); err != nil {
+			http.Error(w, fmt.Sprintf("failed to delete device: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "deleted_id": id})
+	}))
+
 	// API: List Device Groups (Protected)
 	mux.HandleFunc("GET /api/groups", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		groups, err := st.ListDeviceGroups(r.Context())

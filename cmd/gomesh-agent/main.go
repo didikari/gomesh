@@ -98,13 +98,18 @@ func main() {
 		return
 	}
 
-	// 2. If launched via double-click on Windows (without explicit CLI flags), perform zero-click auto-installation to background
 	isCLI := *foreground || *serverURL != "" || *token != ""
 	if checkAndSelfInstall(false, isCLI) {
 		return
 	}
 
-	// 3. Interactive / Standalone execution
+	acquired, unlock := acquireSingleInstanceLock()
+	if !acquired {
+		slog.Warn("another instance of GoMesh Agent is already running on this machine, exiting cleanly")
+		return
+	}
+	defer unlock()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

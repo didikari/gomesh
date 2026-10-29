@@ -415,6 +415,21 @@ func (s *Store) MarkStaleDevices(ctx context.Context, timeout time.Duration) (in
 	return res.RowsAffected()
 }
 
+// DeleteDevice removes a device and associated session audits from SQLite store
+func (s *Store) DeleteDevice(ctx context.Context, id string) error {
+	_, _ = s.db.ExecContext(ctx, "DELETE FROM session_audits WHERE device_id = ?;", id)
+	query := "DELETE FROM devices WHERE id = ?;"
+	res, err := s.db.ExecContext(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete device: %w", err)
+	}
+	rows, err := res.RowsAffected()
+	if err == nil && rows == 0 {
+		return fmt.Errorf("device not found")
+	}
+	return nil
+}
+
 // --- USER & AUTH STORE METHODS ---
 
 // EnsureDefaultAdmin checks if any user exists, and if not, creates default admin/admin123

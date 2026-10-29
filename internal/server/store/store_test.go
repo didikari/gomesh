@@ -69,4 +69,22 @@ func TestStoreUpsertAndHeartbeat(t *testing.T) {
 	if fetched.Status != "offline" {
 		t.Errorf("expected status offline, got %s", fetched.Status)
 	}
+
+	// Delete device
+	if err := s.DeleteDevice(ctx, dev.ID); err != nil {
+		t.Fatalf("failed to delete device: %v", err)
+	}
+
+	fetched, err = s.GetDevice(ctx, dev.ID)
+	if err != nil {
+		t.Fatalf("unexpected error after delete: %v", err)
+	}
+	if fetched != nil {
+		t.Fatalf("expected device to be deleted, but still found: %v", fetched)
+	}
+
+	// Deleting non-existent device should return error
+	if err := s.DeleteDevice(ctx, "non-existent-id"); err == nil {
+		t.Errorf("expected error when deleting non-existent device, got nil")
+	}
 }

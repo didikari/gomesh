@@ -673,6 +673,43 @@ func (h *Hub) ConnectedCount() int {
 	return len(h.agents)
 }
 
+// DisconnectDevice forcefully closes active agent, terminal, and desktop sessions for a device
+func (h *Hub) DisconnectDevice(deviceID string) {
+	h.mu.Lock()
+	if sess, exists := h.agents[deviceID]; exists {
+		sess.writeMu.Lock()
+		sess.closed = true
+		sess.Conn.Close()
+		sess.writeMu.Unlock()
+		delete(h.agents, deviceID)
+	}
+	h.mu.Unlock()
+
+	h.termMu.Lock()
+	for sID, term := range h.terminalSessions {
+		if term.DeviceID == deviceID {
+			term.writeMu.Lock()
+			term.closed = true
+			term.BrowserConn.Close()
+			term.writeMu.Unlock()
+			delete(h.terminalSessions, sID)
+		}
+	}
+	h.termMu.Unlock()
+
+	h.deskMu.Lock()
+	for sID, desk := range h.desktopSessions {
+		if desk.DeviceID == deviceID {
+			desk.writeMu.Lock()
+			desk.closed = true
+			desk.BrowserConn.Close()
+			desk.writeMu.Unlock()
+			delete(h.desktopSessions, sID)
+		}
+	}
+	h.deskMu.Unlock()
+}
+
 // RequestRPC sends an RPC request envelope to the specified agent and awaits the response
 func (h *Hub) RequestRPC(ctx context.Context, deviceID string, msgType string, payload interface{}) (protocol.Envelope, error) {
 	h.mu.RLock()

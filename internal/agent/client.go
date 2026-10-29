@@ -20,6 +20,7 @@ import (
 
 	"gomesh/internal/agent/desktop"
 	"gomesh/internal/agent/filemgr"
+	"gomesh/internal/agent/machineid"
 	"gomesh/internal/agent/pty"
 	"gomesh/internal/protocol"
 
@@ -68,12 +69,13 @@ func NewClient(serverURL string, configDir string) (*Client, error) {
 		_ = json.Unmarshal(data, &cfg)
 	}
 
-	// Ensure persistent UUID exists
-	if cfg.HardwareUUID == "" {
+	if machID := machineid.Get(); machID != "" {
+		cfg.HardwareUUID = machID
+	} else if cfg.HardwareUUID == "" {
 		cfg.HardwareUUID = uuid.NewString()
 	}
 	if cfg.DeviceID == "" {
-		cfg.DeviceID = uuid.NewString()
+		cfg.DeviceID = cfg.HardwareUUID
 	}
 	cfg.ServerURL = serverURL
 

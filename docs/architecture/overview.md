@@ -276,3 +276,19 @@
 - Antivirus Clean: Tanpa runtime packer / crypter pihak ketiga (mencegah false-positive Defender).
 - Two-Factor Authentication (TOTP RFC 6238): Pembangkitan QR code dan validasi OTP murni standar Go tanpa dependensi eksternal.
 - RBAC: Session cookie HTTP-only dengan token acak 256-bit dan proteksi CSRF.
+
+## 18. Device Lifecycle & Anti-Duplicate Hardware Identity
+- **Hardware-Bound Identity (`internal/agent/machineid/`):**
+  Untuk mencegah duplikasi baris perangkat saat agent dijalankan berulang atau dari direktori berbeda, agent mengekstrak UUID perangkat keras deterministik langsung dari sistem operasi:
+  - Windows: Membaca `HKLM\SOFTWARE\Microsoft\Cryptography\MachineGuid`.
+  - Linux: Membaca `/etc/machine-id` atau `/var/lib/dbus/machine-id`.
+  - macOS: Membaca `IOPlatformUUID` dari IORegistry (`IOPlatformExpertDevice`).
+  - Fallback: Deterministic SHA-256 dari Hardware MAC + Hostname.
+  Server menggunakan `ON CONFLICT(hardware_uuid) DO UPDATE` pada tabel `devices` SQLite dan otomatis menutup session lama saat koneksi baru masuk, menjamin satu komputer fisik selalu memiliki satu ID unik.
+- **Single-Instance Mutex Enforcement (`cmd/gomesh-agent/`):**
+  - Windows: Named mutex `Global\GoMeshAgentSingleInstanceLock` via `CreateMutexW`.
+  - Unix: Exclusive non-blocking file lock (`flock`) pada `/tmp/gomesh-agent.lock`.
+  - Mencegah beberapa proses agent (misal service + double-click manual di Downloads) berjalan bersamaan di komputer klien.
+- **Device Deletion Subsystem:**
+  - `DELETE /api/devices/{id}` menghapus metadata perangkat dari database, membersihkan relasi `session_audits`, dan memanggil `hub.DisconnectDevice(id)` untuk memutuskan koneksi WebSocket agent, desktop, dan terminal yang sedang aktif seketika.
+  - UI Web Dashboard menyediakan tombol hapus di setiap baris tabel dengan dialog konfirmasi (`showConfirmModal`).
