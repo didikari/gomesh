@@ -526,6 +526,20 @@ func (s *Store) UpdateUserTOTP(ctx context.Context, userID, secret string, enabl
 	return nil
 }
 
+// UpdateUserPassword updates the password hash for a user
+func (s *Store) UpdateUserPassword(ctx context.Context, userID, newPasswordHash string) error {
+	query := `UPDATE users SET password_hash = ? WHERE id = ?;`
+	res, err := s.db.ExecContext(ctx, query, newPasswordHash, userID)
+	if err != nil {
+		return fmt.Errorf("failed updating user password: %w", err)
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
 // AuthenticateUser verifies username and password
 func (s *Store) AuthenticateUser(ctx context.Context, username, password string) (*User, error) {
 	u, err := s.GetUserByUsername(ctx, username)

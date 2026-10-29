@@ -162,9 +162,12 @@
   - `/login` — Halaman login
   - `/devices/{id}` — Detail device & panel remote
 - API routes:
-  - `POST /api/v1/auth/login`
-  - `GET /api/v1/devices`
-  - `POST /api/v1/tokens`
+  - `POST /api/auth/login` — Autentikasi credential (username & password)
+  - `POST /api/auth/login/2fa` — Verifikasi TOTP 2FA
+  - `POST /api/auth/password` — Pembaruan kata sandi akun login (self-service)
+  - `GET /api/devices` — Daftar status nodes/perangkat terdaftar
+  - `DELETE /api/devices/{id}` — Penghapusan record node & pemutusan sesi aktif
+  - `POST /api/tokens` — Pembuatan enrollment token baru
 - WebSocket routes:
   - `GET /ws/agent` — Endpoint koneksi reverse tunnel dari agen
   - `GET /ws/terminal` — Tunnel interaktif terminal teknisi

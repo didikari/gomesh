@@ -137,6 +137,22 @@ Goal: Manajemen siklus hidup perangkat lengkap dengan penghapusan perangkat dan 
 - [x] Agent Uninstall Command (`-uninstall` flag):
   - Perintah 1-klik `gomesh-agent.exe -uninstall` untuk membersihkan seluruh service, scheduled task, registry key, dan file konfigurasi secara otomatis dari komputer target.
 
+### Phase 10 — Security Hardening: Dynamic Credentials & Self-Service Password Management [SELESAI]
+Goal: Menghilangkan hardcoded credentials default pada UI login dan menyediakan self-service ganti password.
+- [x] Eliminasi kredensial login statis di frontend (`web/index.html`):
+  - Menghapus atribut `value="admin"` dan `value="admin123"` pada input form login.
+  - Menambahkan `autocomplete="username"` dan `autocomplete="current-password"`.
+- [x] Backend API Ganti Password (`POST /api/auth/password`):
+  - Memverifikasi kata sandi lama via bcrypt sebelum mengizinkan pembaruan.
+  - Memvalidasi panjang kata sandi baru (minimal 6 karakter).
+  - Mengupdate hash password di database SQLite (`UpdateUserPassword`).
+- [x] UI Modal Ganti Password di Web Console:
+  - Tombol akses cepat (ikon kunci) di header navigation.
+  - Modal interaktif dengan validasi kesesuaian kata sandi baru dan umpan balik realtime.
+  - Integrasi listener keyboard shortcut (`Escape` close).
+- [x] Unit Testing & Regresi Autentikasi:
+  - Menambahkan test suite `TestChangePasswordFlow` untuk memvalidasi proteksi unauthorized, invalid current password, dan keberhasilan rotasi credential.
+
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
 |---|---|---|---|

@@ -49,11 +49,11 @@
       <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Username</label>
-          <input type="text" id="login-username" required value="admin" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+          <input type="text" id="login-username" required placeholder="admin" autocomplete="username" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
         </div>
         <div>
           <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Password</label>
-          <input type="password" id="login-password" required value="admin123" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+          <input type="password" id="login-password" required placeholder="••••••••" autocomplete="current-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
         </div>
         <button type="submit" id="login-submit-btn" class="w-full mt-2 py-2.5 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-500 font-semibold text-sm text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center justify-center gap-2">
           <span>Masuk ke Console</span>
@@ -130,6 +130,9 @@
               <span id="nav-username" class="text-xs font-semibold text-white block">admin</span>
               <span id="nav-role" class="text-[10px] text-slate-400 font-mono uppercase block">Admin</span>
             </div>
+            <button onclick="openChangePasswordModal()" class="p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Ganti Password">
+              <i data-lucide="key" class="w-4 h-4"></i>
+            </button>
             <button onclick="open2FAModal()" class="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors" title="Keamanan 2FA (TOTP)">
               <i data-lucide="shield-alert" class="w-4 h-4"></i>
             </button>
@@ -766,6 +769,64 @@
     </div>
   </div>
 
+  <!-- CHANGE PASSWORD MODAL -->
+  <div id="modal-change-password" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <i data-lucide="key" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-base font-bold text-white">Ganti Kata Sandi</h3>
+            <p class="text-xs text-slate-400">Perbarui kata sandi akun administrator</p>
+          </div>
+        </div>
+        <button onclick="closeChangePasswordModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <form onsubmit="handleChangePassword(event)" class="p-6 space-y-4">
+        <div id="change-pwd-error" class="hidden p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+          <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+          <span id="change-pwd-error-msg"></span>
+        </div>
+
+        <div id="change-pwd-success" class="hidden p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+          <span id="change-pwd-success-msg">Password berhasil diperbarui!</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Kata Sandi Saat Ini</label>
+          <input type="password" id="change-pwd-current" required placeholder="Masukkan kata sandi lama" autocomplete="current-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Kata Sandi Baru</label>
+          <input type="password" id="change-pwd-new" required minlength="6" placeholder="Minimal 6 karakter" autocomplete="new-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Konfirmasi Kata Sandi Baru</label>
+          <input type="password" id="change-pwd-confirm" required minlength="6" placeholder="Ulangi kata sandi baru" autocomplete="new-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeChangePasswordModal()" class="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+            Batal
+          </button>
+          <button type="submit" id="change-pwd-submit-btn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-indigo-600/30 transition-colors flex items-center gap-1.5">
+            <span>Simpan Perubahan</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- CUSTOM CONFIRM MODAL (Modern Replacement for window.confirm) -->
   <div id="custom-confirm-modal" class="fixed inset-0 z-[9990] bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
     <div class="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
@@ -1267,6 +1328,92 @@
       } finally {
         btn.disabled = false;
         btn.innerText = 'Nonaktifkan 2FA';
+      }
+    }
+
+    // --- CHANGE PASSWORD ---
+    function openChangePasswordModal() {
+      document.getElementById('change-pwd-current').value = '';
+      document.getElementById('change-pwd-new').value = '';
+      document.getElementById('change-pwd-confirm').value = '';
+      document.getElementById('change-pwd-error').classList.add('hidden');
+      document.getElementById('change-pwd-success').classList.add('hidden');
+      document.getElementById('modal-change-password').classList.remove('hidden');
+      lucide.createIcons();
+      setTimeout(() => document.getElementById('change-pwd-current')?.focus(), 50);
+    }
+
+    function closeChangePasswordModal() {
+      document.getElementById('modal-change-password').classList.add('hidden');
+    }
+
+    async function handleChangePassword(e) {
+      e.preventDefault();
+      const currentPassword = document.getElementById('change-pwd-current').value;
+      const newPassword = document.getElementById('change-pwd-new').value;
+      const confirmPassword = document.getElementById('change-pwd-confirm').value;
+      const errorDiv = document.getElementById('change-pwd-error');
+      const errorMsg = document.getElementById('change-pwd-error-msg');
+      const successDiv = document.getElementById('change-pwd-success');
+      const submitBtn = document.getElementById('change-pwd-submit-btn');
+
+      errorDiv.classList.add('hidden');
+      successDiv.classList.add('hidden');
+
+      if (!currentPassword) {
+        errorMsg.innerText = 'Kata sandi saat ini wajib diisi.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+
+      if (newPassword.length < 6) {
+        errorMsg.innerText = 'Kata sandi baru minimal 6 karakter.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+
+      if (newPassword !== confirmPassword) {
+        errorMsg.innerText = 'Konfirmasi kata sandi baru tidak cocok.';
+        errorDiv.classList.remove('hidden');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i> Menyimpan...';
+      lucide.createIcons();
+
+      try {
+        const res = await fetch('/api/auth/password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            current_password: currentPassword,
+            new_password: newPassword
+          })
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          successDiv.classList.remove('hidden');
+          showToast('Kata sandi berhasil diperbarui!', 'success');
+          document.getElementById('change-pwd-current').value = '';
+          document.getElementById('change-pwd-new').value = '';
+          document.getElementById('change-pwd-confirm').value = '';
+          setTimeout(() => {
+            closeChangePasswordModal();
+          }, 1200);
+        } else {
+          errorMsg.innerText = data.error || 'Gagal mengubah kata sandi.';
+          errorDiv.classList.remove('hidden');
+          showToast(data.error || 'Gagal mengubah kata sandi', 'error');
+        }
+      } catch (err) {
+        errorMsg.innerText = 'Terjadi kesalahan jaringan: ' + err.message;
+        errorDiv.classList.remove('hidden');
+        showToast('Kesalahan jaringan: ' + err.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<span>Simpan Perubahan</span>';
+        lucide.createIcons();
       }
     }
 
@@ -2400,6 +2547,8 @@
         }
         const modal2FA = document.getElementById('modal-2fa');
         if (modal2FA && !modal2FA.classList.contains('hidden')) close2FAModal();
+        const changePwdModal = document.getElementById('modal-change-password');
+        if (changePwdModal && !changePwdModal.classList.contains('hidden')) closeChangePasswordModal();
         const termModal = document.getElementById('terminal-modal');
         if (termModal && !termModal.classList.contains('hidden')) closeTerminal();
         const filesModal = document.getElementById('files-modal');

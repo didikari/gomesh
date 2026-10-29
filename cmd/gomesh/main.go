@@ -18,6 +18,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"gomesh/internal/agent/embeddedcfg"
 	"gomesh/internal/server/auth"
 	"gomesh/internal/server/hub"
@@ -671,6 +673,53 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -e '%s' -t '%s' -g 
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	}))
+
+	// POST /api/auth/password: Changes password for currently logged-in user
+	mux.HandleFunc("POST /api/auth/password", sm.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		sess, _ := auth.FromContext(r.Context())
+		if sess == nil {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var req struct {
+			CurrentPassword string `json:"current_password"`
+			NewPassword     string `json:"new_password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+
+		if len(req.NewPassword) < 6 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Password baru minimal 6 karakter."})
+			return
+		}
+
+		user, err := st.AuthenticateUser(r.Context(), sess.Username, req.CurrentPassword)
+		if err != nil || user == nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"error": "Password saat ini salah."})
+			return
+		}
+
+		newHash, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+		if err != nil {
+			http.Error(w, "failed hashing password", http.StatusInternalServerError)
+			return
+		}
+
+		if err := st.UpdateUserPassword(r.Context(), user.ID, string(newHash)); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "message": "Password berhasil diperbarui"})
 	}))
 
 	// --- PROTECTED DEVICE & TELEMETRY ENDPOINTS ---

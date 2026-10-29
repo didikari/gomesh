@@ -214,3 +214,115 @@ func TestTwoFactorAuthenticationFlow(t *testing.T) {
 		t.Fatalf("expected 2fa enabled=false after disabling, got %v", resp)
 	}
 }
+
+func TestChangePasswordFlow(t *testing.T) {
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to init store: %v", err)
+	}
+	defer st.Close()
+
+	if _, _, err := st.EnsureDefaultAdmin(context.Background()); err != nil {
+		t.Fatalf("failed to ensure admin: %v", err)
+	}
+
+	sm := auth.NewSessionManager(time.Hour)
+	h := hub.New(st)
+	defer h.Stop()
+
+	handler := buildServerMux(st, sm, h)
+
+	doRequest := func(method, path string, body interface{}, cookie *http.Cookie) (*httptest.ResponseRecorder, map[string]interface{}) {
+		var reqBody []byte
+		if body != nil {
+			reqBody, _ = json.Marshal(body)
+		}
+		req := httptest.NewRequest(method, path, bytes.NewReader(reqBody))
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
+		if cookie != nil {
+			req.AddCookie(cookie)
+		}
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		var respData map[string]interface{}
+		json.Unmarshal(rec.Body.Bytes(), &respData)
+		return rec, respData
+	}
+
+	// 1. Login with initial admin credentials
+	rec, _ := doRequest("POST", "/api/auth/login", map[string]string{
+		"username": "admin",
+		"password": "admin123",
+	}, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected login to succeed, got %d", rec.Code)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.Value != "" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("missing session cookie")
+	}
+
+	// 2. Attempt change password without auth cookie -> 401
+	rec, _ = doRequest("POST", "/api/auth/password", map[string]string{
+		"current_password": "admin123",
+		"new_password":     "supersecret123",
+	}, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without auth cookie, got %d", rec.Code)
+	}
+
+	// 3. Attempt with wrong current password -> 401
+	rec, _ = doRequest("POST", "/api/auth/password", map[string]string{
+		"current_password": "wrongpassword",
+		"new_password":     "supersecret123",
+	}, sessionCookie)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 with wrong current password, got %d", rec.Code)
+	}
+
+	// 4. Attempt with new password < 6 chars -> 400
+	rec, _ = doRequest("POST", "/api/auth/password", map[string]string{
+		"current_password": "admin123",
+		"new_password":     "123",
+	}, sessionCookie)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 with password < 6 chars, got %d", rec.Code)
+	}
+
+	// 5. Successful password change
+	rec, resp := doRequest("POST", "/api/auth/password", map[string]string{
+		"current_password": "admin123",
+		"new_password":     "newSecretP@ssword2026",
+	}, sessionCookie)
+	if rec.Code != http.StatusOK || resp["success"] != true {
+		t.Fatalf("expected password change to succeed, got code %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	// 6. Old password must fail login
+	rec, _ = doRequest("POST", "/api/auth/login", map[string]string{
+		"username": "admin",
+		"password": "admin123",
+	}, nil)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected old password to fail, got %d", rec.Code)
+	}
+
+	// 7. New password must succeed login
+	rec, resp = doRequest("POST", "/api/auth/login", map[string]string{
+		"username": "admin",
+		"password": "newSecretP@ssword2026",
+	}, nil)
+	if rec.Code != http.StatusOK || resp["success"] != true {
+		t.Fatalf("expected login with new password to succeed, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+}
