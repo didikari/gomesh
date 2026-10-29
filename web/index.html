@@ -2166,6 +2166,7 @@
       }
 
       canvas.onmousemove = (e) => {
+        if (!desktopControlEnabled) return;
         const now = Date.now();
         if (now - lastMoveSent > 50) {
           lastMoveSent = now;
@@ -2175,6 +2176,7 @@
       };
 
       canvas.onmousedown = (e) => {
+        if (!desktopControlEnabled) return;
         e.preventDefault();
         const pos = getCanvasCoordinates(e);
         sendInput({ event: 'mousedown', x: pos.x, y: pos.y, button: e.button });
@@ -2182,18 +2184,22 @@
       };
 
       canvas.onmouseup = (e) => {
+        if (!desktopControlEnabled) return;
         e.preventDefault();
         const pos = getCanvasCoordinates(e);
         sendInput({ event: 'mouseup', x: pos.x, y: pos.y, button: e.button });
       };
 
       canvas.onclick = (e) => {
+        if (!desktopControlEnabled) {
+          showToast("Mode 'View Only' aktif. Klik tombol 'Control: View Only' di pojok kanan atas untuk mengaktifkan kendali mouse & keyboard.", "info");
+          return;
+        }
         e.preventDefault();
-        const pos = getCanvasCoordinates(e);
-        sendInput({ event: 'click', x: pos.x, y: pos.y, button: e.button });
       };
 
       canvas.onwheel = (e) => {
+        if (!desktopControlEnabled) return;
         e.preventDefault();
         sendInput({ event: 'wheel', delta_y: e.deltaY });
       };
