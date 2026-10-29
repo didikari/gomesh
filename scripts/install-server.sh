@@ -80,18 +80,48 @@ elif [ -f "./bin/gomesh" ]; then
 fi
 
 if [ "$DOWNLOAD_SUCCESS" = false ]; then
-    echo "[!] Gagal mengunduh binary dari GitHub Releases ($RELEASE_URL)."
-    echo "[*] Mencoba mengunduh binary pre-compiled dari repository utama..."
-    FALLBACK_URL="https://raw.githubusercontent.com/${REPO}/main/bin/gomesh-linux"
-    if curl -sSLf "$FALLBACK_URL" -o "$INSTALL_DIR/gomesh" 2>/dev/null; then
-        DOWNLOAD_SUCCESS=true
-        echo "[+] Berhasil mengunduh binary dari repository."
+    echo "[!] Binary rilis belum tersedia di GitHub Releases ($RELEASE_URL)."
+    echo "[*] Menyiapkan GoMesh Server secara otomatis di latar belakang..."
+
+    TEMP_BUILD_DIR="/tmp/gomesh-bootstrap-$$"
+    mkdir -p "$TEMP_BUILD_DIR"
+
+    # Periksa apakah go sudah terpasang di host
+    if command -v go >/dev/null 2>&1; then
+        echo "[*] Menggunakan Go compiler yang terpasang di sistem..."
+        if curl -sSL "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" | tar -C "$TEMP_BUILD_DIR" --strip-components=1 -xz 2>/dev/null; then
+            (cd "$TEMP_BUILD_DIR" && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$INSTALL_DIR/gomesh" ./cmd/gomesh)
+            DOWNLOAD_SUCCESS=true
+        fi
+    else
+        # Jika belum ada Go, gunakan compiler portabel sementara di /tmp (hanya untuk build, langsung dihapus)
+        echo "[*] Mengunduh runtime compiler portabel sementara ke /tmp..."
+        GO_TARBALL="go1.23.2.linux-${ARCH}.tar.gz"
+        GO_DL_URL="https://go.dev/dl/${GO_TARBALL}"
+
+        if curl -sSLf "$GO_DL_URL" -o "$TEMP_BUILD_DIR/go.tar.gz" 2>/dev/null; then
+            echo "[*] Mengekstrak compiler portabel..."
+            tar -C "$TEMP_BUILD_DIR" -xzf "$TEMP_BUILD_DIR/go.tar.gz"
+            echo "[*] Mengunduh source code GoMesh..."
+            mkdir -p "$TEMP_BUILD_DIR/src"
+            if curl -sSL "https://github.com/${REPO}/archive/refs/heads/main.tar.gz" | tar -C "$TEMP_BUILD_DIR/src" --strip-components=1 -xz 2>/dev/null; then
+                echo "[*] Mengompilasi GoMesh Server (Pure Go static binary)..."
+                (cd "$TEMP_BUILD_DIR/src" && CGO_ENABLED=0 "$TEMP_BUILD_DIR/go/bin/go" build -trimpath -ldflags="-s -w" -o "$INSTALL_DIR/gomesh" ./cmd/gomesh)
+                if [ -f "$INSTALL_DIR/gomesh" ]; then
+                    DOWNLOAD_SUCCESS=true
+                    echo "[+] Kompilasi berhasil! Binary siap digunakan."
+                fi
+            fi
+        fi
     fi
+
+    # Bersihkan direktori sementara
+    rm -rf "$TEMP_BUILD_DIR"
 fi
 
 if [ "$DOWNLOAD_SUCCESS" = false ]; then
-    echo "[X] Fatal: Tidak dapat memperoleh binary server pre-compiled."
-    echo "    Silakan pastikan rilis GitHub tersedia di https://github.com/${REPO}/releases"
+    echo "[X] Fatal: Tidak dapat menyiapkan binary server GoMesh."
+    echo "    Silakan periksa koneksi internet server Anda atau rilis di https://github.com/${REPO}/releases"
     exit 1
 fi
 

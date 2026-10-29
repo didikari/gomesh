@@ -3,7 +3,7 @@ name: Release & Multi-Arch Build
 on:
   push:
     tags:
-      - 'v*.*.*'
+      - 'v*'
   workflow_dispatch:
 
 permissions:
