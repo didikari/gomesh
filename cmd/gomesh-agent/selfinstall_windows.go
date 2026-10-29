@@ -148,7 +148,17 @@ func copyFile(src, dst string) error {
 	}
 	defer in.Close()
 
-	_ = os.Remove(dst)
+	// Stop running service if present so binary lock is released
+	stopCmd := exec.Command("sc.exe", "stop", "GoMeshAgent")
+	stopCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = stopCmd.Run()
+
+	// Windows file replace trick: Rename existing executable to .old (succeeds even if locked)
+	oldPath := dst + ".old"
+	_ = os.Remove(oldPath)
+	if err := os.Rename(dst, oldPath); err != nil {
+		_ = os.Remove(dst)
+	}
 
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
 	if err != nil {
