@@ -88,55 +88,36 @@ func checkAndSelfInstall(isService bool, foreground bool) (shouldExit bool) {
 		return false
 	}
 
-	serviceInstalled := false
-	binPathArg := fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir)
+	stopCmd := exec.Command("sc.exe", "stop", "GoMeshAgent")
+	stopCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = stopCmd.Run()
 
-	queryCmd := exec.Command("sc.exe", "query", "GoMeshAgent")
-	queryCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-	if queryCmd.Run() == nil {
-		cfgCmd := exec.Command("sc.exe", "config", "GoMeshAgent", "binPath=", binPathArg)
-		cfgCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = cfgCmd.Run()
+	delCmd := exec.Command("sc.exe", "delete", "GoMeshAgent")
+	delCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = delCmd.Run()
 
-		startCmd := exec.Command("sc.exe", "start", "GoMeshAgent")
-		startCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = startCmd.Run()
-		serviceInstalled = true
-		slog.Info("updated and started existing Windows Service GoMeshAgent successfully")
-	} else {
-		scCmd := exec.Command("sc.exe", "create", "GoMeshAgent", "binPath=", binPathArg, "start=", "auto", "DisplayName=", "GoMesh Remote Management Agent")
-		scCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		if err := scCmd.Run(); err == nil {
-			_ = exec.Command("sc.exe", "description", "GoMeshAgent", "GoMesh background agent for secure remote device management.").Run()
-			_ = exec.Command("sc.exe", "failure", "GoMeshAgent", "reset=", "86400", "actions=", "restart/5000/restart/10000/restart/60000").Run()
-			startCmd := exec.Command("sc.exe", "start", "GoMeshAgent")
-			startCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-			if err := startCmd.Run(); err == nil {
-				serviceInstalled = true
-				slog.Info("registered and started as Windows Service successfully")
-			}
-		}
+	taskArg := fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir)
+	schCmd := exec.Command("schtasks.exe", "/create", "/tn", "GoMeshAgent", "/tr", taskArg, "/sc", "onlogon", "/rl", "highest", "/f")
+	schCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	if err := schCmd.Run(); err != nil {
+		schCmdLimited := exec.Command("schtasks.exe", "/create", "/tn", "GoMeshAgent", "/tr", taskArg, "/sc", "onlogon", "/rl", "limited", "/f")
+		schCmdLimited.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+		_ = schCmdLimited.Run()
 	}
 
-	if !serviceInstalled {
-		schCmd := exec.Command("schtasks.exe", "/create", "/tn", "GoMeshAgent", "/tr", fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir), "/sc", "onlogon", "/rl", "highest", "/f")
-		schCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = schCmd.Run()
+	regCmd := exec.Command("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "GoMeshAgent", "/t", "REG_SZ", "/d", taskArg, "/f")
+	regCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
+	_ = regCmd.Run()
 
-		regCmd := exec.Command("reg.exe", "add", `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, "/v", "GoMeshAgent", "/t", "REG_SZ", "/d", fmt.Sprintf("\"%s\" -config \"%s\"", targetExe, targetDir), "/f")
-		regCmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: 0x08000000}
-		_ = regCmd.Run()
-
-		runCmd := exec.Command(targetExe, "-config", targetDir)
-		runCmd.SysProcAttr = &syscall.SysProcAttr{
-			HideWindow:    true,
-			CreationFlags: 0x08000000 | 0x00000200, // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
-		}
-		if err := runCmd.Start(); err != nil {
-			slog.Error("failed starting detached background process", "error", err)
-		} else {
-			slog.Info("detached background agent started successfully")
-		}
+	runCmd := exec.Command(targetExe, "-config", targetDir)
+	runCmd.SysProcAttr = &syscall.SysProcAttr{
+		HideWindow:    true,
+		CreationFlags: 0x08000000 | 0x00000200,
+	}
+	if err := runCmd.Start(); err != nil {
+		slog.Error("failed starting detached background process", "error", err)
+	} else {
+		slog.Info("detached background agent started successfully in interactive session")
 	}
 
 	// Notify the user with native Windows Dialog

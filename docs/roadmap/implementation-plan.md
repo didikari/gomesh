@@ -131,8 +131,10 @@ Goal: Manajemen siklus hidup perangkat lengkap dengan penghapusan perangkat dan 
   - Windows: Mutex tingkat sistem `Global\GoMeshAgentSingleInstanceLock` via Win32 `CreateMutexW`.
   - Unix: Advisory file lock (`flock`) pada `/tmp/gomesh-agent.lock`.
   - Mencegah lebih dari 1 proses agent berjalan bersamaan di komputer klien yang sama.
-- [x] Windows Service Auto-Detection:
-  - Mengecek keberadaan service `GoMeshAgent` yang sudah ada via `sc.exe query`. Jika sudah ada, memperbarui binary path tanpa men-trigger fallback detached process yang memicu duplikasi.
+- [x] Windows Interactive Session Auto-Start:
+  - Mengalihkan auto-start dari Session 0 Service (`sc.exe`) ke Task Scheduler (`schtasks.exe /sc onlogon`) dan Registry Run key, sehingga screen capture display aktif dan Remote Desktop tidak lagi terhalang isolasi Session 0.
+- [x] Agent Uninstall Command (`-uninstall` flag):
+  - Perintah 1-klik `gomesh-agent.exe -uninstall` untuk membersihkan seluruh service, scheduled task, registry key, dan file konfigurasi secara otomatis dari komputer target.
 
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |

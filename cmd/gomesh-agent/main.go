@@ -20,7 +20,13 @@ func main() {
 	group := flag.String("group", "", "Target Device Group Name (e.g. Group A, Office, Lab)")
 	configDir := flag.String("config", ".", "Path to store agent persistent identity")
 	foreground := flag.Bool("foreground", false, "Run in foreground/console mode (disable self-installation and console hiding)")
+	uninstallFlag := flag.Bool("uninstall", false, "Uninstall and stop all GoMesh background agent instances")
 	flag.Parse()
+
+	if *uninstallFlag {
+		uninstallAgent()
+		return
+	}
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: slog.LevelInfo,
