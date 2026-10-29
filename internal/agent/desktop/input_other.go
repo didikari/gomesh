@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !linux && !darwin
 
 package desktop
 
@@ -9,6 +9,6 @@ import (
 )
 
 func injectInput(payload protocol.DesktopInputPayload) error {
-	slog.Debug("simulating input event on unix target", "event", payload.Event, "x", payload.X, "y", payload.Y)
+	slog.Debug("input simulation not implemented for target OS", "event", payload.Event)
 	return nil
 }

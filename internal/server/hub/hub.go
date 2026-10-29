@@ -616,12 +616,12 @@ func (h *Hub) HandleDesktopWS(w http.ResponseWriter, r *http.Request) {
 
 	slog.Info("opening live remote desktop session", "session_id", sessionID, "device_id", deviceID, "user", user)
 
-	// Send DesktopStart to target agent
+	// Send DesktopStart to target agent with high-performance low-latency settings
 	startEnv := protocol.NewEnvelope(protocol.TypeDesktopStart, protocol.DesktopStartPayload{
 		SessionID: sessionID,
 		Display:   0,
-		Quality:   65,
-		FPS:       15,
+		Quality:   45,
+		FPS:       25,
 	})
 	if err := agentSess.SendMessage(startEnv); err != nil {
 		slog.Error("failed sending desktop start to agent", "error", err)

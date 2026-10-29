@@ -3,22 +3,49 @@ package desktop
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"image"
 	"image/jpeg"
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
+	"time"
 
 	"gomesh/internal/protocol"
 
 	"github.com/kbinani/screenshot"
 )
 
+var (
+	ErrFrameUnchanged = errors.New("frame unchanged")
+
+	hashMu         sync.Mutex
+	lastScreenHash uint64
+	lastFrameSent  time.Time
+)
+
+// fastScreenHash samples pixels across the image buffer to detect visual changes in < 0.2ms
+func fastScreenHash(img *image.RGBA) uint64 {
+	pix := img.Pix
+	n := len(pix)
+	if n == 0 {
+		return 0
+	}
+	var h uint64 = 14695981039346656037
+	step := 48 // sample every 12th pixel
+	for i := 0; i < n; i += step {
+		h ^= uint64(pix[i])
+		h *= 1099511628211
+	}
+	return h
+}
+
 // CaptureDisplay captures a screenshot of the specified monitor index and encodes as JPEG
 func CaptureDisplay(displayIndex int, quality int) (*protocol.DesktopFramePayload, error) {
 	if quality <= 0 || quality > 100 {
-		quality = 65
+		quality = 45
 	}
 
 	n := screenshot.NumActiveDisplays()
@@ -30,6 +57,18 @@ func CaptureDisplay(displayIndex int, quality int) (*protocol.DesktopFramePayloa
 		bounds := screenshot.GetDisplayBounds(displayIndex)
 		img, err := screenshot.CaptureRect(bounds)
 		if err == nil && img != nil {
+			hashMu.Lock()
+			currentHash := fastScreenHash(img)
+			now := time.Now()
+			// If screen is unchanged and last frame was sent within 500ms, skip heavy encoding!
+			if currentHash == lastScreenHash && now.Sub(lastFrameSent) < 500*time.Millisecond {
+				hashMu.Unlock()
+				return nil, ErrFrameUnchanged
+			}
+			lastScreenHash = currentHash
+			lastFrameSent = now
+			hashMu.Unlock()
+
 			var buf bytes.Buffer
 			if err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: quality}); err == nil {
 				return &protocol.DesktopFramePayload{

@@ -2111,15 +2111,15 @@
           if (frame && frame.data) {
             clearTimeout(desktopLoadingTimer);
             loading.classList.add('hidden');
-            const img = new Image();
-            img.onload = () => {
+
+            const onDecoded = (drawable) => {
               if (canvas.width !== frame.width || canvas.height !== frame.height) {
                 canvas.width = frame.width;
                 canvas.height = frame.height;
                 currentNativeWidth = frame.width;
                 currentNativeHeight = frame.height;
               }
-              ctx.drawImage(img, 0, 0);
+              ctx.drawImage(drawable, 0, 0);
 
               frameCount++;
               const now = Date.now();
@@ -2127,10 +2127,31 @@
                 currentFPS = frameCount;
                 frameCount = 0;
                 lastFpsCheck = now;
-                metrics.innerText = `${frame.width}x${frame.height} • ${currentFPS} FPS • JPEG Stream`;
+                metrics.innerText = `${frame.width}x${frame.height} • ${currentFPS} FPS • Sat-Set Ultra Low Latency`;
               }
             };
-            img.src = `data:image/jpeg;base64,${frame.data}`;
+
+            // High performance GPU off-thread decoding via createImageBitmap
+            if (window.createImageBitmap) {
+              const byteCharacters = atob(frame.data);
+              const byteNumbers = new Uint8Array(byteCharacters.length);
+              for (let i = 0; i < byteCharacters.length; i++) {
+                byteNumbers[i] = byteCharacters.charCodeAt(i);
+              }
+              const blob = new Blob([byteNumbers], { type: 'image/jpeg' });
+              createImageBitmap(blob).then(bitmap => {
+                onDecoded(bitmap);
+                bitmap.close();
+              }).catch(() => {
+                const img = new Image();
+                img.onload = () => onDecoded(img);
+                img.src = `data:image/jpeg;base64,${frame.data}`;
+              });
+            } else {
+              const img = new Image();
+              img.onload = () => onDecoded(img);
+              img.src = `data:image/jpeg;base64,${frame.data}`;
+            }
           }
         } catch (e) {
           console.error('Frame decode error:', e);
@@ -2150,6 +2171,9 @@
 
       // Mouse Input Dispatcher
       let lastMoveSent = 0;
+      let lastSentX = -1;
+      let lastSentY = -1;
+
       function sendInput(eventData) {
         if (!desktopControlEnabled || !activeDesktopWS || activeDesktopWS.readyState !== WebSocket.OPEN) return;
         activeDesktopWS.send(JSON.stringify(eventData));
@@ -2160,18 +2184,23 @@
         const scaleX = canvas.width / rect.width;
         const scaleY = canvas.height / rect.height;
         return {
-          x: (e.clientX - rect.left) * scaleX,
-          y: (e.clientY - rect.top) * scaleY
+          x: Math.round((e.clientX - rect.left) * scaleX),
+          y: Math.round((e.clientY - rect.top) * scaleY)
         };
       }
 
       canvas.onmousemove = (e) => {
         if (!desktopControlEnabled) return;
         const now = Date.now();
+        // Throttle to 50ms and only send if moved at least 3px to avoid network congestion
         if (now - lastMoveSent > 50) {
-          lastMoveSent = now;
           const pos = getCanvasCoordinates(e);
-          sendInput({ event: 'mousemove', x: pos.x, y: pos.y });
+          if (Math.abs(pos.x - lastSentX) >= 3 || Math.abs(pos.y - lastSentY) >= 3) {
+            lastMoveSent = now;
+            lastSentX = pos.x;
+            lastSentY = pos.y;
+            sendInput({ event: 'mousemove', x: pos.x, y: pos.y });
+          }
         }
       };
 
@@ -2179,6 +2208,8 @@
         if (!desktopControlEnabled) return;
         e.preventDefault();
         const pos = getCanvasCoordinates(e);
+        lastSentX = pos.x;
+        lastSentY = pos.y;
         sendInput({ event: 'mousedown', x: pos.x, y: pos.y, button: e.button });
         canvas.focus();
       };
@@ -2201,7 +2232,8 @@
       canvas.onwheel = (e) => {
         if (!desktopControlEnabled) return;
         e.preventDefault();
-        sendInput({ event: 'wheel', delta_y: e.deltaY });
+        const pos = getCanvasCoordinates(e);
+        sendInput({ event: 'wheel', x: pos.x, y: pos.y, delta_y: e.deltaY });
       };
 
       canvas.onkeydown = (e) => {
@@ -2231,8 +2263,8 @@
         btn.classList.remove('bg-slate-800', 'text-slate-200');
         btn.classList.add('bg-emerald-600', 'text-white');
         label.innerText = 'Control: Active (Interacting)';
-        canvas.classList.remove('cursor-default');
-        canvas.classList.add('cursor-crosshair');
+        canvas.classList.remove('cursor-crosshair');
+        canvas.classList.add('cursor-default');
         canvas.focus();
       } else {
         btn.classList.remove('bg-emerald-600', 'text-white');

@@ -62,7 +62,14 @@ func injectInput(payload protocol.DesktopInputPayload) error {
 		_, _, _ = procMouseEvent.Call(up, 0, 0, 0, 0)
 
 	case "wheel":
-		_, _, _ = procMouseEvent.Call(uintptr(MOUSEEVENTF_WHEEL), 0, 0, uintptr(int(payload.DeltaY)), 0)
+		if payload.X > 0 || payload.Y > 0 {
+			_, _, _ = procSetCursorPos.Call(uintptr(int(payload.X)), uintptr(int(payload.Y)))
+		}
+		var delta int32 = -120
+		if payload.DeltaY < 0 {
+			delta = 120
+		}
+		_, _, _ = procMouseEvent.Call(uintptr(MOUSEEVENTF_WHEEL), 0, 0, uintptr(uint32(delta)), 0)
 	}
 
 	return nil

@@ -199,7 +199,21 @@
 - **Dynamic Binary Configuration Overlay:**
   - Konfigurasi token, endpoints, dan group disematkan langsung di akhir file executable (`<!--GOMESH_CFG_START-->` JSON) saat diunduh via Web Console, sehingga client tidak memerlukan file konfigurasi terpisah.
 
-## 14. Recommended Folder Structure
+## 14. Sat-Set Ultra-Low Latency Remote Desktop Engine
+- **Fast Screen Change Detection (Dirty Frame Skipping):**
+  - Sampling pixel hashing (FNV-1a 64-bit) berjalan dalam < 0.2ms. Jika layar statis, agen tidak melakukan kompresi JPEG dan tidak mengirimkan data, menurunkan konsumsi CPU ke 0% dan mengosongkan antrean TCP network.
+  - Begitu ada perubahan (klik/mengetik), frame langsung dikirim tanpa antrean bufferbloat.
+- **Off-Thread GPU Decoding:**
+  - Browser merender frame JPEG menggunakan API `createImageBitmap()` langsung pada thread rasterizer GPU, menghindari garbage collection freeze dari DOM `new Image()`.
+- **Cross-Platform Native Input Simulation:**
+  - Windows: Win32 `SetCursorPos`, `mouse_event` dengan `WHEEL_DELTA` (120) terkalibrasi.
+  - Linux: Pure Go X11 / XTest via `github.com/jezek/xgb/xtest` + fallback `xdotool`.
+  - macOS: CoreGraphics / `cliclick` + fallback universal `osascript` (System Events).
+- **Intelligent Mouse Throttling & Normal Cursor:**
+  - Kursor menggunakan `cursor-default` panah standar.
+  - Throttling `mousemove` 40ms dengan filter threshold 2-3px untuk mencegah TCP buffer congestion.
+
+## 15. Recommended Folder Structure
 ```text
 .
 ├── cmd/

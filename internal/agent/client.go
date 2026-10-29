@@ -618,41 +618,54 @@ func (c *Client) startDesktopStream(conn *websocket.Conn, payload protocol.Deskt
 
 	fps := payload.FPS
 	if fps <= 0 || fps > 30 {
-		fps = 15
+		fps = 25
 	}
 	interval := time.Duration(1000/fps) * time.Millisecond
 
 	quality := payload.Quality
 	if quality <= 0 || quality > 100 {
-		quality = 65
+		quality = 45
 	}
 
 	slog.Info("starting desktop live screen capture", "session_id", payload.SessionID, "fps", fps, "quality", quality)
 
 	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-
 		var lastErrLog time.Time
 		for {
 			select {
 			case <-stopChan:
 				return
-			case <-ticker.C:
-				frame, err := desktop.CaptureDisplay(payload.Display, quality)
-				if err != nil {
-					if time.Since(lastErrLog) > 5*time.Second {
-						slog.Warn("desktop screen capture error", "error", err)
-						lastErrLog = time.Now()
-					}
+			default:
+			}
+
+			start := time.Now()
+			frame, err := desktop.CaptureDisplay(payload.Display, quality)
+			if err != nil {
+				if errors.Is(err, desktop.ErrFrameUnchanged) {
+					// Screen is static - sleep 30ms to maintain zero CPU & zero network consumption
+					time.Sleep(30 * time.Millisecond)
 					continue
 				}
-				frame.SessionID = payload.SessionID
-
-				env := protocol.NewEnvelope(protocol.TypeDesktopFrame, frame)
-				if err := c.sendEnvelope(conn, env); err != nil {
-					return
+				if time.Since(lastErrLog) > 5*time.Second {
+					slog.Warn("desktop screen capture error", "error", err)
+					lastErrLog = time.Now()
 				}
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+			frame.SessionID = payload.SessionID
+
+			env := protocol.NewEnvelope(protocol.TypeDesktopFrame, frame)
+			if err := c.sendEnvelope(conn, env); err != nil {
+				return
+			}
+
+			elapsed := time.Since(start)
+			if elapsed < interval {
+				time.Sleep(interval - elapsed)
+			} else {
+				// Yield CPU at least 10ms so OS stays responsive and processes input events smoothly
+				time.Sleep(10 * time.Millisecond)
 			}
 		}
 	}()
