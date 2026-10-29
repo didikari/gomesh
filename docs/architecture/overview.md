@@ -232,9 +232,15 @@
 │   ├── index.html
 │   └── static/
 ├── scripts/                # Script instalasi & embedder
+│   ├── install-server.sh   # 1-Line automated server installer (Linux systemd)
 │   ├── install-windows.ps1
 │   ├── install-linux.sh
-│   └── install-macos.sh
+│   ├── install-macos.sh
+│   └── build-all.sh        # Cross-compile standalone binaries
+├── .github/workflows/
+│   └── release.yml         # CI/CD automated release & multi-arch Docker image
+├── Dockerfile              # Multi-stage lightweight server container (< 20MB)
+├── docker-compose.yml      # Zero-dependency compose setup
 ├── docs/                   # Dokumentasi Foundation Pack
 ├── go.mod
 └── go.sum

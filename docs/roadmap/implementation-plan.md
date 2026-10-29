@@ -93,6 +93,17 @@ Success criteria:
 - [x] Smart Roaming dual-network teruji dan tervalidasi (`PASS` pada `TestClientEndpointFailover` & `TestDirectDownloadsAndEmbeddedScripts`).
 - [x] Agent dapat langsung dijalankan dengan double click `.exe` tanpa CMD, otomatis beralih LAN/WAN sesuai lokasi user.
 
+### Phase 7 — Zero-Go Server Deployment & Production Packaging [SELESAI]
+Goal: Memungkinkan deployment GoMesh Central Server di VPS Linux / Docker tanpa perlu meng-install compiler Go sama sekali.
+- [x] 1-Line Automated Server Installer (`scripts/install-server.sh`): Auto-detect OS/Arch, unduh binary pre-compiled, auto-setup systemd service, auto-start on boot, dan print link dashboard dalam < 5 detik.
+- [x] Multi-Stage Dockerfile & docker-compose.yml: Image container ultra-ringan berbasis Alpine (< 20MB) dengan auto-restart dan volume SQLite persistent.
+- [x] GitHub Actions CI/CD Pipeline (`.github/workflows/release.yml`): Otomatisasi cross-compile multi-platform binary (Linux amd64/arm64, Windows amd64, macOS arm64/amd64) dan build/push container image multi-arch ke GitHub Container Registry (`ghcr.io/didikari/gomesh`).
+- [x] Cross-Compilation Tooling (`scripts/build-all.sh`): Skrip 1-klik untuk mengompilasi seluruh varian Server dan Agent ke folder `dist/` lengkap dengan checksum SHA256.
+
+Success criteria:
+- [x] User Linux VPS dapat menjalankan server dengan 1 baris perintah `curl ... | sudo bash` tanpa menyentuh compiler Go.
+- [x] User Docker dapat menjalankan `docker run` atau `docker compose up -d` langsung dari image container.
+
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
 |---|---|---|---|

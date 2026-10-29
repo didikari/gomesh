@@ -153,76 +153,132 @@ flowchart LR
 
 ---
 
-## 🛠️ Instalasi & Kompilasi (Quick Start)
+## 🛠️ Panduan Menjalankan Server (Zero Dependencies)
 
-### 1. Kebutuhan Sistem
-- **Server:** Linux, macOS, atau Windows.
-- **Klien (Agent):** Windows 10/11/Server, Linux (Ubuntu, Debian, CentOS, Arch, dll.), macOS (Intel & Apple Silicon).
-- **Kompilasi dari Source (Opsional):** Go 1.23+ (jika memakai binary pre-built, tidak memerlukan dependensi apapun).
+GoMesh didistribusikan sebagai **single static binary** murni (Pure Go tanpa CGO). **Anda TIDAK perlu menginstall Golang, Python, Node.js, atau runtime apapun di server Anda!**
+
+Pilih salah satu metode instalasi server di bawah ini:
 
 ---
 
-### 2. Kompilasi dari Source
+### 🚀 Metode 1: 1-Line Auto-Installer (Rekomendasi untuk Linux VPS / Ubuntu / Debian / CentOS)
 
-Clone repository dan build binary server serta agen:
+Cukup salin dan jalankan perintah 1-baris ini di terminal server Anda:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/didikari/gomesh/main/scripts/install-server.sh | sudo bash
+```
+
+**Apa yang dilakukan script ini secara otomatis?**
+1. Mendeteksi arsitektur CPU server (`amd64` atau `arm64`).
+2. Mengunduh binary standalone server pre-compiled.
+3. Memasang service `systemd` (`/etc/systemd/system/gomesh.service`) dengan auto-restart saat boot/crash.
+4. Menjalankan server di port `8080` dan menampilkan link web dashboard beserta akun default dalam waktu < 5 detik!
+
+> Ingin menggunakan port kustom (misal port 9000)?
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/didikari/gomesh/main/scripts/install-server.sh | sudo bash -s -- -p 9000
+> ```
+
+---
+
+### 🐳 Metode 2: Docker / Docker Compose (1 Command)
+
+Bagi pengguna Docker, jalankan langsung container resmi GoMesh:
+
+```bash
+docker run -d \
+  --name gomesh \
+  -p 8080:8080 \
+  -v gomesh-data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/didikari/gomesh:latest
+```
+
+Atau menggunakan `docker-compose.yml`:
+
+```yaml
+services:
+  gomesh:
+    image: ghcr.io/didikari/gomesh:latest
+    container_name: gomesh-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Jakarta
+```
+Jalankan dengan: `docker compose up -d`
+
+---
+
+### 📦 Metode 3: Download Binary Pre-Compiled (Tinggal Jalankan)
+
+Unduh binary mandiri sesuai sistem operasi server Anda dari [GitHub Releases](https://github.com/didikari/gomesh/releases):
+
+#### Linux (x86_64 / amd64):
+```bash
+curl -LO https://github.com/didikari/gomesh/releases/latest/download/gomesh-linux-amd64
+chmod +x gomesh-linux-amd64
+./gomesh-linux-amd64 -port 8080
+```
+
+#### Windows Server:
+1. Unduh `gomesh-windows-amd64.exe` dari GitHub Releases.
+2. Double-click untuk langsung menjalankan, atau buka PowerShell:
+   ```powershell
+   .\gomesh-windows-amd64.exe -port 8080
+   ```
+
+#### macOS (Apple Silicon / Intel):
+```bash
+curl -LO https://github.com/didikari/gomesh/releases/latest/download/gomesh-darwin-arm64
+chmod +x gomesh-darwin-arm64
+./gomesh-darwin-arm64 -port 8080
+```
+
+---
+
+### 🛠️ Metode 4: Kompilasi Manual dari Source (Khusus Developer)
+
+Hanya jika Anda seorang pengembang yang ingin memodifikasi source code GoMesh:
 
 ```bash
 # Clone repository
 git clone https://github.com/didikari/gomesh.git
 cd gomesh
 
-# Build Central Server
+# Build Central Server & Agents (atau gunakan ./scripts/build-all.sh)
 go build -trimpath -ldflags="-s -w" -o bin/gomesh ./cmd/gomesh
 
-# Build Agent untuk macOS (Host saat ini)
-go build -trimpath -ldflags="-s -w" -o bin/gomesh-agent ./cmd/gomesh-agent
-
-# Build Agent untuk Linux x86_64
-GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o bin/gomesh-agent-linux ./cmd/gomesh-agent
-
-# Build Agent untuk Windows (GUI subsystem - tanpa popup CMD)
-GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w -H=windowsgui" -o bin/gomesh-agent.exe ./cmd/gomesh-agent
-```
-
-> [!NOTE]
-> Flag `-H=windowsgui` pada Windows memastikan agen berjalan sepenuhnya di layer latar belakang (*background layer*) tanpa memunculkan jendela console hitam.
-
----
-
-### 3. Menjalankan GoMesh Central Server
-
-Jalankan binary server:
-
-```bash
+# Jalankan server lokal
 ./bin/gomesh -port 8080 -db data/gomesh.db
 ```
 
-Output log akan muncul:
-```text
-2026/10/29 10:00:00 INFO starting GoMesh Central Server port=8080 db=data/gomesh.db
-2026/10/29 10:00:00 INFO initialized default admin credentials username=admin initial_password=admin123
-2026/10/29 10:00:00 INFO HTTP server listening address=0.0.0.0:8080
-```
+---
 
-1. Buka browser Anda dan akses: `http://localhost:8080` (atau IP server Anda, misal: `http://192.168.1.5:8080`).
+### 🔑 Akun Bawaan & Akses Web Dashboard
+
+Setelah server berjalan (via script, docker, maupun binary langsung):
+1. Buka browser Anda: `http://<IP-SERVER>:8080` (atau `http://localhost:8080`).
 2. Login dengan akun bawaan:
    - **Username:** `admin`
-   - **Password:** `admin123` *(Segera ganti password dan aktifkan TOTP 2FA di dashboard)*.
+   - **Password:** `admin123`
+3. *(Penting)* Segera aktifkan **Two-Factor Authentication (TOTP 2FA)** dan ubah password di profil admin.
 
 ---
 
-### 4. Menghubungkan Akses Luar Kantor (Cloudflare Tunnel - Gratis)
+### ☁️ Akses dari Luar Kantor (Cloudflare Tunnel - Gratis & Tanpa Buka Port)
 
-Jika server Anda berada di jaringan kantor tanpa IP publik statis, Anda dapat menggunakan Cloudflare Tunnel gratis untuk akses jarak jauh dari mana saja tanpa membuka port router:
+Jika server Anda berada di jaringan lokal kantor tanpa IP publik statis, gunakan Cloudflare Tunnel gratis agar klien di luar kantor tetap dapat terhubung:
 
 ```bash
-# Pasang cloudflared (jika belum ada)
 # Jalankan tunnel instan gratis ke server lokal GoMesh
 cloudflared tunnel --url http://localhost:8080
 ```
-
-Cloudflare akan memberikan URL publik seperti:  
-`https://contoh-acak.trycloudflare.com`
+Cloudflare akan memberikan URL publik instan (misal `https://mesh-anda.trycloudflare.com`). Salin URL ini ke konfigurasi Smart Roaming GoMesh!
 
 ---
 
@@ -343,9 +399,15 @@ GoMesh/
 │   ├── index.html                 # Single-page UI (Tailwind CSS, xterm.js, Canvas)
 │   └── static/
 ├── scripts/                       # Shell & PowerShell deployment scripts
-│   ├── install-windows.ps1
-│   ├── install-linux.sh
-│   └── install-macos.sh
+│   ├── install-server.sh          # 1-Line automated server installer (Linux)
+│   ├── install-windows.ps1        # Agent installer untuk Windows
+│   ├── install-linux.sh           # Agent installer untuk Linux
+│   ├── install-macos.sh           # Agent installer untuk macOS
+│   └── build-all.sh               # Cross-compiler all OS/Arch
+├── .github/workflows/
+│   └── release.yml                # CI/CD otomatis release binary & Docker multi-arch
+├── Dockerfile                     # Multi-stage lightweight server image
+├── docker-compose.yml             # Docker compose deployment
 ├── docs/                          # Dokumentasi teknis & Foundation Pack
 │   ├── architecture/overview.md   # Cetak biru arsitektur
 │   ├── product/prd.md             # Product Requirements Document
