@@ -23,7 +23,58 @@ const (
 	MOUSEEVENTF_MIDDLEDOWN = 0x0020
 	MOUSEEVENTF_MIDDLEUP   = 0x0040
 	MOUSEEVENTF_WHEEL      = 0x0800
+
+	KEYEVENTF_EXTENDEDKEY = 0x0001
+	KEYEVENTF_KEYUP       = 0x0002
+	KEYEVENTF_UNICODE     = 0x0004
 )
+
+var specialKeys = map[string]uintptr{
+	"Enter":      0x0D,
+	"Backspace":  0x08,
+	"Tab":        0x09,
+	"Escape":     0x1B,
+	"Delete":     0x2E,
+	"ArrowUp":    0x26,
+	"ArrowDown":  0x28,
+	"ArrowLeft":  0x25,
+	"ArrowRight": 0x27,
+	"Home":       0x24,
+	"End":        0x23,
+	"PageUp":     0x21,
+	"PageDown":   0x22,
+	"Shift":      0x10,
+	"Control":    0x11,
+	"Alt":        0x12,
+	"Meta":       0x5B,
+	"CapsLock":   0x14,
+}
+
+func injectKeyWindows(key string, isUp bool) {
+	if key == "" {
+		return
+	}
+
+	var flags uintptr
+	if isUp {
+		flags |= KEYEVENTF_KEYUP
+	}
+
+	if vk, ok := specialKeys[key]; ok {
+		if key == "ArrowUp" || key == "ArrowDown" || key == "ArrowLeft" || key == "ArrowRight" ||
+			key == "Home" || key == "End" || key == "PageUp" || key == "PageDown" || key == "Delete" || key == "Meta" {
+			flags |= KEYEVENTF_EXTENDEDKEY
+		}
+		_, _, _ = procKeybdEvent.Call(vk, 0, flags, 0)
+		return
+	}
+
+	runes := []rune(key)
+	if len(runes) == 1 {
+		flags |= KEYEVENTF_UNICODE
+		_, _, _ = procKeybdEvent.Call(0, uintptr(runes[0]), flags, 0)
+	}
+}
 
 func injectInput(payload protocol.DesktopInputPayload) error {
 	switch payload.Event {
@@ -70,6 +121,12 @@ func injectInput(payload protocol.DesktopInputPayload) error {
 			delta = 120
 		}
 		_, _, _ = procMouseEvent.Call(uintptr(MOUSEEVENTF_WHEEL), 0, 0, uintptr(uint32(delta)), 0)
+
+	case "keydown":
+		injectKeyWindows(payload.Key, false)
+
+	case "keyup":
+		injectKeyWindows(payload.Key, true)
 	}
 
 	return nil

@@ -110,10 +110,11 @@ Goal: Mengoptimalkan performa remote desktop agar sangat responsif, lancar, dan 
 - [x] Dynamic Frame Pacing & Quality Tuning: Penurunan encode quality ke 45 dan target 25 FPS dengan sleep dinamis 10-15ms agar I/O socket dan handling input tidak terblokir.
 - [x] Off-Thread GPU Image Decoding (`web/index.html`): Menggantikan `img.src = URL.createObjectURL` dengan `createImageBitmap(blob)` untuk rendering asinkronus langsung di kartu grafis tanpa jank di main UI thread.
 - [x] Cross-Platform Calibrated Native Input:
-  - Windows: Perbaikan scroll wheel (`WHEEL_DELTA` 120, DWORD casting, sinkronisasi `SetCursorPos` sebelum wheel).
-  - Linux: Pure-Go X11 / XTest input injector via `github.com/jezek/xgb/xtest` dengan fallback CLI `xdotool`.
+  - Windows: Perbaikan scroll wheel (`WHEEL_DELTA` 120, DWORD casting, sinkronisasi `SetCursorPos` sebelum wheel) dan implementasi injeksi keyboard via Win32 `KEYEVENTF_UNICODE` & Virtual Key mapping untuk seluruh tombol khusus.
+  - Linux: Pure-Go X11 / XTest input injector via `github.com/jezek/xgb/xtest` dengan fallback CLI `xdotool` termasuk penanganan keyboard keydown/keyup.
   - macOS: Driver AppleScript (`osascript`) dan CLI `cliclick` untuk native mouse, keyboard, dan scroll injection.
 - [x] Default Natural Pointer & Throttled Mousemove: Mengubah kursor canvas dari `+` (crosshair) menjadi arrow standar, membatasi frekuensi mousemove ke 50ms dengan koordinat integer bulat, dan menambahkan toast reminder jika mengklik saat mode View-Only.
+- [x] Windows Path Normalization in File Explorer: Normalisasi path Windows ke forward slash (`filepath.ToSlash`) dan escaping backslash di browser UI untuk mengatasi string escape bug saat membuka direktori Windows.
 
 ### Phase 9 — Device Lifecycle & Anti-Duplicate Hardware Identity [SELESAI]
 Goal: Manajemen siklus hidup perangkat lengkap dengan penghapusan perangkat dan pencegahan duplikasi komputer target.

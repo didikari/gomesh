@@ -1987,14 +1987,20 @@
     }
 
     function escapeQuotes(str) {
-      return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      return (str || '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '&quot;');
     }
 
     function navigateUp() {
       if (!currentLoadedPath || currentLoadedPath === '/' || currentLoadedPath === '.') return;
-      const parts = currentLoadedPath.replace(/\/+$/, '').split('/');
+      const normalized = currentLoadedPath.replace(/\\/g, '/').replace(/\/+$/, '');
+      const parts = normalized.split('/');
       parts.pop();
-      const parent = parts.join('/') || '/';
+      let parent = parts.join('/');
+      if (!parent) parent = '/';
+      if (/^[a-zA-Z]:$/.test(parent)) parent += '/';
       loadDir(parent);
     }
 
@@ -2340,8 +2346,23 @@
       }
     });
 
-    // Close on Escape key
     window.addEventListener('keydown', (e) => {
+      const deskModal = document.getElementById('desktop-modal');
+      if (deskModal && !deskModal.classList.contains('hidden')) {
+        if (e.key === 'Escape' && !desktopControlEnabled) {
+          if (!document.fullscreenElement) closeDesktopModal();
+          return;
+        }
+        if (desktopControlEnabled && activeDesktopWS && activeDesktopWS.readyState === WebSocket.OPEN) {
+          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+          activeDesktopWS.send(JSON.stringify({ event: 'keydown', key: e.key }));
+          if (['Tab', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+            e.preventDefault();
+          }
+          return;
+        }
+      }
+
       if (e.key === 'Escape') {
         const confirmModal = document.getElementById('custom-confirm-modal');
         if (confirmModal && !confirmModal.classList.contains('hidden')) {
@@ -2359,12 +2380,21 @@
         if (termModal && !termModal.classList.contains('hidden')) closeTerminal();
         const filesModal = document.getElementById('files-modal');
         if (filesModal && !filesModal.classList.contains('hidden')) closeFilesModal();
-        const deskModal = document.getElementById('desktop-modal');
         if (deskModal && !deskModal.classList.contains('hidden') && !document.fullscreenElement) closeDesktopModal();
         const installModal = document.getElementById('install-modal');
         if (installModal && !installModal.classList.contains('hidden')) closeInstallModal();
         const auditsModal = document.getElementById('audits-modal');
         if (auditsModal && !auditsModal.classList.contains('hidden')) closeAuditsModal();
+      }
+    });
+
+    window.addEventListener('keyup', (e) => {
+      const deskModal = document.getElementById('desktop-modal');
+      if (deskModal && !deskModal.classList.contains('hidden')) {
+        if (desktopControlEnabled && activeDesktopWS && activeDesktopWS.readyState === WebSocket.OPEN) {
+          if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+          activeDesktopWS.send(JSON.stringify({ event: 'keyup', key: e.key }));
+        }
       }
     });
 

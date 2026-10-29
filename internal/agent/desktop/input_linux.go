@@ -138,6 +138,18 @@ func injectLinuxCLI(payload protocol.DesktopInputPayload) error {
 		if path, err := exec.LookPath("xdotool"); err == nil {
 			_ = exec.Command(path, "mousemove", fmt.Sprint(int(payload.X)), fmt.Sprint(int(payload.Y)), "click", btn).Run()
 		}
+	case "keydown":
+		if payload.Key != "" {
+			if path, err := exec.LookPath("xdotool"); err == nil {
+				_ = exec.Command(path, "keydown", payload.Key).Run()
+			}
+		}
+	case "keyup":
+		if payload.Key != "" {
+			if path, err := exec.LookPath("xdotool"); err == nil {
+				_ = exec.Command(path, "keyup", payload.Key).Run()
+			}
+		}
 	}
 	return nil
 }

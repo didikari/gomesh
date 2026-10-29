@@ -22,6 +22,7 @@ func List(targetPath string) (string, []protocol.FileEntry, error) {
 		}
 	}
 
+	targetPath = filepath.Clean(targetPath)
 	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return targetPath, nil, fmt.Errorf("invalid path: %w", err)
@@ -39,7 +40,7 @@ func List(targetPath string) (string, []protocol.FileEntry, error) {
 			continue
 		}
 
-		itemPath := filepath.Join(absPath, e.Name())
+		itemPath := filepath.ToSlash(filepath.Join(absPath, e.Name()))
 		results = append(results, protocol.FileEntry{
 			Name:    e.Name(),
 			Path:    itemPath,
@@ -58,7 +59,7 @@ func List(targetPath string) (string, []protocol.FileEntry, error) {
 		return results[i].Name < results[j].Name
 	})
 
-	return absPath, results, nil
+	return filepath.ToSlash(absPath), results, nil
 }
 
 // ReadChunk reads a chunk of a file at a specific offset
