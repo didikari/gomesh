@@ -177,18 +177,45 @@
 - Migrasi: File SQL migrasi tertanam yang dijalankan otomatis saat server startup.
 - Data retention: Audit log disimpan dengan opsi vacuum periodik.
 
-## 12. Recommended Folder Structure
+## 12. Smart Roaming Dual-Network Architecture (Phase 6)
+- **Multi-Endpoint Prioritization:**
+  - Agen menerima daftar endpoint terurut: `[Priority 1: LAN kantor, Priority 2+: Cloudflare Tunnel / IP Publik WAN]`.
+  - Dial timeout cepat (3 detik per endpoint) agar saat perangkat di luar kantor langsung melompat ke koneksi WAN tanpa freeze.
+- **Background LAN Prober:**
+  - Saat agen aktif di WAN, goroutine di latar belakang memeriksa `GET /api/health` ke endpoint LAN kantor setiap 30 detik.
+  - Begitu perangkat kembali ke kantor (terkoneksi Wi-Fi kantor atau router MikroTik), koneksi WAN otomatis ditutup dan beralih ke LAN (latensi sub-milidetik, hemat bandwidth).
+- **Multi-VLAN & Router MikroTik Awareness:**
+  - Deteksi IP server pada router bertingkat (misal server di `172.16.10.x` dan client di `192.168.20.x`).
+  - Web console menyediakan selektor IP LAN aktif (`GET /api/server/network`) dan badge status real-time `[LAN]` vs `[WAN]`.
+
+## 13. Zero-Click Windows Deployment & Service Integration
+- **Zero-Click Launcher:**
+  - Agen dikompilasi dengan `-ldflags="-H=windowsgui"` agar tidak memunculkan jendela CMD saat di-double-click.
+  - Deteksi otomatis lokasi eksekusi: Jika dijalankan di luar `C:\ProgramData\GoMesh`, agen otomatis meng-copy dirinya ke direktori instalasi, mendaftarkan startup service, memicu notifikasi visual Windows, dan meluncurkan background worker tersembunyi (`CREATE_NO_WINDOW`).
+- **Resilient Auto-Start:**
+  - Tingkat 1: Windows Service API murni (`golang.org/x/sys/windows/svc`).
+  - Tingkat 2: Windows Task Scheduler (`schtasks /create /sc onlogon`).
+  - Tingkat 3: Windows Registry Run Key (`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`).
+- **Dynamic Binary Configuration Overlay:**
+  - Konfigurasi token, endpoints, dan group disematkan langsung di akhir file executable (`<!--GOMESH_CFG_START-->` JSON) saat diunduh via Web Console, sehingga client tidak memerlukan file konfigurasi terpisah.
+
+## 14. Recommended Folder Structure
 ```text
 .
 ├── cmd/
 │   ├── gomesh/             # Main entry point Server
 │   │   └── main.go
 │   └── gomesh-agent/       # Main entry point Agent
-│       └── main.go
+│       ├── main.go
+│       ├── selfinstall_windows.go
+│       ├── selfinstall_other.go
+│       ├── service_windows.go
+│       └── service_other.go
 ├── internal/
-│   ├── agent/              # Logika Agent
+│   ├── agent/              # Logika Agent & Smart Roaming
 │   │   ├── client.go
 │   │   ├── desktop/
+│   │   ├── embeddedcfg/
 │   │   ├── filemgr/
 │   │   ├── pty/
 │   │   └── telemetry/
@@ -204,24 +231,28 @@
 │   ├── embed.go
 │   ├── index.html
 │   └── static/
-│       ├── css/
-│       └── js/
+├── scripts/                # Script instalasi & embedder
+│   ├── install-windows.ps1
+│   ├── install-linux.sh
+│   └── install-macos.sh
 ├── docs/                   # Dokumentasi Foundation Pack
 ├── go.mod
 └── go.sum
 ```
 
-## 13. Cross-Cutting Concerns
+## 15. Cross-Cutting Concerns
 - Logging: Structured logging menggunakan Go standard `log/slog`.
 - Error Handling: Sentralisasi error responses pada API dan pemulihan graceful (*recover*) pada WebSocket goroutines.
 - Graceful Shutdown: Menangkap sinyal `SIGINT` / `SIGTERM` untuk menutup koneksi WebSocket dan database cleanly.
 
-## 14. Risks
+## 16. Risks
 - OS-specific PTY on Windows:
   - ConPTY membutuhkan Windows 10/Server 2019 ke atas.
-  - Mitigation: Gunakan fallback ke standard pipe I/O jika ConPTY tidak tersedia di Windows legacy.
-- Screen capture permission on macOS / Wayland:
-  - Mitigation: Dokumentasikan requirement permission dan sediakan deteksi status environment di agent.
+  - Mitigation: Fallback ke standard pipe I/O dan powershell/cmd jika ConPTY tidak tersedia.
+- Screen capture permission on macOS:
+  - Mitigation: Deteksi permission dan sediakan panduan Accessibility / Screen Recording di Web UI.
 
-## 15. Open Decisions
-- [OPEN DECISION] Format frame desktop: Pengiriman diff bounding-box JPEG vs full frame JPEG. (Rekomendasi awal: Full frame JPEG dengan adaptive framerate 15 FPS untuk fase 1).
+## 17. Security & Hardening Highlights
+- Antivirus Clean: Tanpa runtime packer / crypter pihak ketiga (mencegah false-positive Defender).
+- Two-Factor Authentication (TOTP RFC 6238): Pembangkitan QR code dan validasi OTP murni standar Go tanpa dependensi eksternal.
+- RBAC: Session cookie HTTP-only dengan token acak 256-bit dan proteksi CSRF.
