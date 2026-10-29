@@ -326,3 +326,112 @@ func TestChangePasswordFlow(t *testing.T) {
 		t.Fatalf("expected login with new password to succeed, got %d, body: %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestMultiPageRoutingAndStaticAssets(t *testing.T) {
+	st, err := store.New(":memory:")
+	if err != nil {
+		t.Fatalf("failed to init store: %v", err)
+	}
+	defer st.Close()
+
+	if _, _, err := st.EnsureDefaultAdmin(context.Background()); err != nil {
+		t.Fatalf("failed to ensure admin: %v", err)
+	}
+
+	sm := auth.NewSessionManager(time.Hour)
+	h := hub.New(st)
+	defer h.Stop()
+
+	handler := buildServerMux(st, sm, h)
+
+	// 1. GET / unauthenticated -> must redirect 302 to /login
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for unauthenticated GET /, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/login" {
+		t.Fatalf("expected Location: /login, got %s", loc)
+	}
+
+	// 2. GET /login unauthenticated -> must serve 200 OK login.html
+	req = httptest.NewRequest("GET", "/login", nil)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for GET /login, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "login-form") {
+		t.Fatalf("expected login.html to contain login-form, got body %s", rec.Body.String()[:100])
+	}
+	if strings.Contains(rec.Body.String(), "{{APP_VERSION}}") {
+		t.Fatalf("expected login.html {{APP_VERSION}} placeholder to be replaced")
+	}
+
+	// 3. Login to obtain session cookie
+	loginReq := httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(`{"username":"admin","password":"admin123"}`))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRec := httptest.NewRecorder()
+	handler.ServeHTTP(loginRec, loginReq)
+
+	var sessionCookie *http.Cookie
+	for _, c := range loginRec.Result().Cookies() {
+		if c.Name == auth.SessionCookieName && c.Value != "" {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatalf("missing session cookie")
+	}
+
+	// 4. GET / with session cookie -> must serve 200 OK dashboard.html
+	req = httptest.NewRequest("GET", "/", nil)
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 for authenticated GET /, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "app-container") {
+		t.Fatalf("expected dashboard.html to contain app-container, got body %s", rec.Body.String()[:100])
+	}
+	if strings.Contains(rec.Body.String(), "{{APP_VERSION}}") {
+		t.Fatalf("expected dashboard.html {{APP_VERSION}} placeholder to be replaced")
+	}
+
+	// 5. GET /login with session cookie -> must redirect 302 to /
+	req = httptest.NewRequest("GET", "/login", nil)
+	req.AddCookie(sessionCookie)
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302 for authenticated GET /login, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Fatalf("expected Location: /, got %s", loc)
+	}
+
+	// 6. Verify modular static assets are served
+	staticPaths := []string{
+		"/static/css/app.css",
+		"/static/js/utils.js",
+		"/static/js/auth.js",
+		"/static/js/terminal.js",
+		"/static/js/desktop.js",
+		"/static/js/filemgr.js",
+		"/static/js/app.js",
+	}
+	for _, p := range staticPaths {
+		req = httptest.NewRequest("GET", p, nil)
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d", p, rec.Code)
+		}
+		if len(rec.Body.Bytes()) == 0 {
+			t.Fatalf("expected non-empty body for %s", p)
+		}
+	}
+}

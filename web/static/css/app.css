@@ -1,0 +1,32 @@
+@keyframes pulse-fast {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.1); }
+}
+
+.pulse-dot {
+  animation: pulse-fast 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.xterm .xterm-viewport {
+  border-radius: 0.5rem;
+}
+
+@media (max-width: 640px) {
+  .xterm .xterm-viewport {
+    border-radius: 0;
+  }
+}
+
+/* Touch targets & tap highlight removal for responsive mobile experience */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Utility to hide scrollbars while preserving horizontal touch scroll */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

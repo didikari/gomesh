@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="id" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+  <title>GoMesh — Remote Device Management Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- xterm.js for Interactive Terminal -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.js"></script>
+
+  <link rel="stylesheet" href="/static/css/app.css" />
+</head>
+<body class="min-h-full flex flex-col font-sans antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- MAIN APP CONTAINER -->
+  <div id="app-container" class="flex-1 flex flex-col">
+    <!-- Top Navbar -->
+    <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur sticky top-0 z-30">
+      <div class="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5 sm:gap-3 shrink-0">
+          <div class="h-8 w-8 sm:h-9 sm:w-9 rounded-lg bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30 text-white font-black text-lg sm:text-xl tracking-wider">
+            M
+          </div>
+          <div>
+            <span class="font-bold text-base sm:text-lg tracking-tight text-white flex items-center gap-1.5 sm:gap-2">
+              GoMesh <span class="hidden sm:inline-flex text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium" id="app-version">{{APP_VERSION}}</span>
+            </span>
+            <p class="text-[11px] text-slate-400 hidden md:block">Open-Source Remote Device Management</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 sm:gap-2.5">
+          <button onclick="openInstallModal()" class="flex items-center gap-1.5 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium p-2 sm:px-3 sm:py-1.5 rounded-lg shadow-sm transition-colors" title="Download Agent">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i> <span class="hidden md:inline">Download Agent</span>
+          </button>
+
+          <button onclick="openInstallModal()" class="flex items-center gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white font-medium p-2 sm:px-3 sm:py-1.5 rounded-lg shadow-sm transition-colors" title="Add Device">
+            <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> <span class="hidden sm:inline">Add Device</span>
+          </button>
+
+          <button onclick="openAuditsModal()" class="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 p-2 sm:px-3 sm:py-1.5 rounded-lg border border-slate-800 transition-colors" title="Audit Logs">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5 text-indigo-400"></i> <span class="hidden lg:inline">Audit Logs</span>
+          </button>
+
+          <button onclick="fetchDevices()" class="flex items-center gap-1.5 text-xs bg-slate-900 hover:bg-slate-800 text-slate-300 p-2 sm:px-3 sm:py-1.5 rounded-lg transition-colors border border-slate-800" title="Refresh">
+            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          </button>
+
+          <!-- User Menu -->
+          <div class="flex items-center gap-1 sm:gap-2 pl-1.5 sm:pl-2 border-l border-slate-800">
+            <div class="text-right hidden sm:block">
+              <span id="nav-username" class="text-xs font-semibold text-white block max-w-[80px] sm:max-w-[120px] truncate">admin</span>
+              <span id="nav-role" class="text-[10px] text-slate-400 font-mono uppercase">Admin</span>
+            </div>
+            <button onclick="openChangePasswordModal()" class="p-2 sm:p-1.5 text-slate-400 hover:text-indigo-400 hover:bg-slate-800 rounded-lg transition-colors" title="Ganti Password">
+              <i data-lucide="key" class="w-4 h-4"></i>
+            </button>
+            <button onclick="open2FAModal()" class="p-2 sm:p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-800 rounded-lg transition-colors" title="Keamanan 2FA (TOTP)">
+              <i data-lucide="shield-alert" class="w-4 h-4"></i>
+            </button>
+            <button onclick="handleLogout()" class="p-2 sm:p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-800 rounded-lg transition-colors" title="Logout">
+              <i data-lucide="log-out" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-3 sm:px-6 lg:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6">
+      
+      <!-- Stats Overview (2x2 on Mobile, 4x1 on Large screens) -->
+      <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div class="p-3 sm:p-4 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div class="min-w-0 pr-2">
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider truncate">Total Nodes</p>
+            <h3 id="stat-total" class="text-xl sm:text-2xl font-bold text-white mt-0.5 sm:mt-1">0</h3>
+          </div>
+          <div class="p-2 sm:p-2.5 rounded-lg bg-slate-800/80 text-indigo-400 shrink-0">
+            <i data-lucide="server" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+          </div>
+        </div>
+
+        <div class="p-3 sm:p-4 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div class="min-w-0 pr-2">
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider truncate">Online</p>
+            <h3 id="stat-online" class="text-xl sm:text-2xl font-bold text-emerald-400 mt-0.5 sm:mt-1">0</h3>
+          </div>
+          <div class="p-2 sm:p-2.5 rounded-lg bg-emerald-950/30 text-emerald-400 border border-emerald-500/20 shrink-0">
+            <i data-lucide="radio" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+          </div>
+        </div>
+
+        <div class="p-3 sm:p-4 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div class="min-w-0 pr-2">
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider truncate">Offline</p>
+            <h3 id="stat-offline" class="text-xl sm:text-2xl font-bold text-slate-400 mt-0.5 sm:mt-1">0</h3>
+          </div>
+          <div class="p-2 sm:p-2.5 rounded-lg bg-slate-800/80 text-slate-400 shrink-0">
+            <i data-lucide="power-off" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+          </div>
+        </div>
+
+        <div class="p-3 sm:p-4 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+          <div class="min-w-0 pr-2">
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400 uppercase tracking-wider truncate">Groups</p>
+            <h3 id="stat-groups" class="text-xl sm:text-2xl font-bold text-amber-400 mt-0.5 sm:mt-1">1</h3>
+          </div>
+          <div class="p-2 sm:p-2.5 rounded-lg bg-amber-950/30 text-amber-400 border border-amber-500/20 shrink-0">
+            <i data-lucide="folder-tree" class="w-4 h-4 sm:w-5 sm:h-5"></i>
+          </div>
+        </div>
+      </section>
+
+      <!-- Device List Section -->
+      <section class="space-y-4">
+        <!-- Group Filter Bar & Search -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950/50 border border-slate-800 p-2.5 sm:p-3 rounded-xl">
+          <!-- Dynamic Group Filter Tabs (Horizontally scrollable on mobile) -->
+          <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0 no-scrollbar max-w-full shrink-0" id="group-tabs-container">
+            <button onclick="setGroupFilter('ALL')" id="tab-group-ALL" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 text-white shadow-sm flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-all">
+              <i data-lucide="layers" class="w-3.5 h-3.5"></i> All Devices (<span id="count-all">0</span>)
+            </button>
+          </div>
+
+          <!-- Search Input -->
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <div class="relative w-full sm:w-64">
+              <i data-lucide="search" class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400"></i>
+              <input type="text" id="search-input" oninput="renderDeviceTable()" placeholder="Cari hostname, IP, group..." class="w-full pl-8 pr-3 py-1.5 bg-slate-900 border border-slate-800 rounded-lg text-base sm:text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 font-mono transition-colors" />
+            </div>
+            <span class="text-[11px] text-slate-400 font-mono hidden md:inline shrink-0" id="sync-timer">Auto-sync: 3s</span>
+          </div>
+        </div>
+
+        <!-- Table Container with Horizontal Scroll -->
+        <div class="bg-slate-950/60 border border-slate-800 rounded-xl overflow-hidden shadow-xl">
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-900/80 text-slate-400 uppercase text-[11px] sm:text-xs border-b border-slate-800 font-semibold tracking-wider">
+                <tr>
+                  <th class="py-3 px-3 sm:px-4">Status</th>
+                  <th class="py-3 px-3 sm:px-4">Hostname & OS</th>
+                  <th class="py-3 px-4 hidden sm:table-cell">Group</th>
+                  <th class="py-3 px-4 hidden lg:table-cell">Architecture</th>
+                  <th class="py-3 px-4 hidden md:table-cell">Network IP</th>
+                  <th class="py-3 px-4 hidden sm:table-cell">Telemetry (CPU / RAM)</th>
+                  <th class="py-3 px-4 hidden xl:table-cell">Last Seen</th>
+                  <th class="py-3 px-3 sm:px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="device-tbody" class="divide-y divide-slate-800/60">
+                <tr>
+                  <td colspan="8" class="py-12 text-center text-slate-500">
+                    <div class="flex flex-col items-center justify-center gap-2">
+                      <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-indigo-400"></i>
+                      <p>Memuat daftar perangkat...</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- Quick Download & Connect Banner -->
+      <section class="bg-slate-950/40 border border-slate-800 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-semibold text-slate-200 flex items-center gap-2">
+            <i data-lucide="download-cloud" class="w-4 h-4 text-emerald-400"></i> Download Installer Agen GoMesh
+          </h3>
+          <p class="text-xs text-slate-400 mt-1">Unduh installer 1-klik (.bat untuk Windows, .sh untuk Linux/macOS) atau binary standalone.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button onclick="openInstallModal()" class="flex-1 sm:flex-none px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white whitespace-nowrap shadow-sm inline-flex items-center justify-center gap-1.5 transition-colors">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i> Download Installer
+          </button>
+          <button onclick="openInstallModal()" class="flex-1 sm:flex-none px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 whitespace-nowrap inline-flex items-center justify-center gap-1.5 transition-colors">
+            <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Petunjuk Terminal
+          </button>
+        </div>
+      </section>
+
+    </main>
+
+    <footer class="border-t border-slate-800/80 py-4 text-center text-xs text-slate-500">
+      GoMesh <span class="font-mono text-indigo-400 font-semibold">{{APP_VERSION}}</span> • High Performance Remote Management • Pure Go Architecture
+    </footer>
+  </div>
+
+  <!-- ADD DEVICE & DOWNLOAD INSTALLER MODAL -->
+  <div id="install-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-2 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] sm:max-h-[90vh] overflow-y-auto flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-4 py-3 sm:px-6 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between sticky top-0 z-10">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-emerald-600/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+            <i data-lucide="download" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Download & Instalasi GoMesh Agent</h3>
+            <p class="text-[11px] sm:text-xs text-slate-400">Unduh installer 1-klik langsung dari web atau gunakan terminal command</p>
+          </div>
+        </div>
+        <button onclick="closeInstallModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-4 sm:p-6 space-y-4 sm:space-y-6">
+        <!-- Token & Group Bar -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          <div class="p-3 sm:p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between">
+            <div class="min-w-0 pr-2">
+              <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Active Enrollment Token</label>
+              <div id="token-display" class="font-mono text-xs text-indigo-300 font-semibold truncate max-w-[180px] sm:max-w-[200px]">default-token</div>
+            </div>
+            <button onclick="generateNewToken()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-[11px] text-slate-200 border border-slate-700 inline-flex items-center gap-1 transition-colors shrink-0">
+              <i data-lucide="key" class="w-3 h-3"></i> Token Baru
+            </button>
+          </div>
+
+          <div class="p-3 sm:p-3.5 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between">
+            <div class="w-full">
+              <label class="block text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">Default Group for New Agents</label>
+              <input type="text" id="target-group-input" value="Default" oninput="updateInstallCommands()" placeholder="e.g. Group A, Office, Servers" class="w-full bg-slate-900 border border-slate-800 rounded px-2.5 py-1 text-base sm:text-xs text-indigo-300 font-mono focus:outline-none focus:border-indigo-500" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Smart Roaming & Hybrid Server Endpoints Configuration -->
+        <div class="p-3.5 sm:p-4 rounded-xl bg-slate-950/80 border border-slate-800 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <h4 class="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                <i data-lucide="shuffle" class="w-4 h-4 text-emerald-400"></i> Smart Roaming Dual-Network (LAN + Internet)
+              </h4>
+              <p class="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
+                Agent otomatis cerdas: saat di kantor menggunakan <strong>LAN</strong> (kecepatan maksimal & hemat kuota), saat user pulang ke rumah otomatis pindah ke <strong>Internet / Cloudflare</strong>.
+              </p>
+            </div>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 flex items-center gap-1 self-start sm:self-auto shrink-0">
+              <i data-lucide="zap" class="w-3 h-3"></i> Auto-Switching
+            </span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 pt-1">
+            <!-- Primary: Local LAN Address -->
+            <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-bold text-emerald-400 flex items-center gap-1">
+                  <i data-lucide="wifi" class="w-3.5 h-3.5"></i> 1. Prioritas 1: Jaringan Kantor (LAN)
+                </label>
+                <span class="text-[9px] uppercase font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">Primary</span>
+              </div>
+              <input type="text" id="target-lan-input" oninput="updateInstallCommands()" placeholder="192.168.1.100:8080" class="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-base sm:text-xs text-white font-mono focus:outline-none focus:border-emerald-500 placeholder:text-slate-600" />
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between text-[10px] text-slate-500 gap-1">
+                <span>IP / Hostname LAN Server GoMesh</span>
+                <button type="button" onclick="applyDetectedLAN()" class="text-emerald-400 hover:underline text-left sm:text-right">Gunakan IP server (<span id="quick-lan-ip">...</span>)</button>
+              </div>
+              <div id="lan-ip-chips" class="hidden pt-1 border-t border-slate-800/60">
+                <span class="text-[10px] text-slate-400 block mb-1">Pilih Interface Router / VLAN:</span>
+                <div id="lan-ip-chips-container" class="flex flex-wrap gap-1"></div>
+              </div>
+            </div>
+
+            <!-- Fallback: Public / WAN / Cloudflare Tunnel -->
+            <div class="p-3 rounded-lg bg-slate-900/90 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between">
+                <label class="text-[11px] font-bold text-sky-400 flex items-center gap-1">
+                  <i data-lucide="globe" class="w-3.5 h-3.5"></i> 2. Prioritas 2: Public / Internet (WAN)
+                </label>
+                <span class="text-[9px] uppercase font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/20">Fallback</span>
+              </div>
+              <input type="text" id="target-public-input" oninput="updateInstallCommands()" placeholder="mesh.perusahaan.com atau tunnel.trycloudflare.com" class="w-full bg-slate-950 border border-slate-800 rounded px-3 py-1.5 text-base sm:text-xs text-white font-mono focus:outline-none focus:border-sky-500 placeholder:text-slate-600" />
+              <div class="text-[10px] text-slate-500">
+                Domain Cloudflare Tunnel / IP Publik / Dynamic DNS saat device di luar kantor
+              </div>
+            </div>
+          </div>
+
+          <div id="localhost-warning-banner" class="hidden p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-center gap-2">
+            <i data-lucide="alert-triangle" class="w-4 h-4 shrink-0 text-amber-400"></i>
+            <span><strong>Catatan:</strong> Alamat server masih <code>localhost / 127.0.0.1</code>. Pastikan ganti ke IP LAN server (misal <code>192.168.1.x:8080</code>) atau isi Public WAN agar komputer lain di jaringan dapat terhubung!</span>
+          </div>
+        </div>
+
+        <!-- 1-Click Installer Section -->
+        <div class="space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="zap" class="w-4 h-4 text-amber-400"></i> 1-Click Auto Installers (Siap Pakai untuk User Awam)
+            </h4>
+            <span class="text-[11px] text-slate-400">Download file lalu klik 2x untuk install</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <!-- Windows 1-Click -->
+            <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 hover:border-slate-700 transition-colors">
+              <div class="flex items-center gap-2">
+                <i data-lucide="app-window" class="w-4 h-4 text-sky-400"></i>
+                <span class="text-xs font-bold text-white">Windows 10/11</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Batch script otomatis download, konfigurasi koneksi, & pasang startup task.</p>
+              <div class="pt-1 flex flex-col gap-1.5">
+                <a id="btn-dl-win-bat" href="#" class="w-full py-2 px-3 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-sm transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download .bat Installer
+                </a>
+                <a id="btn-dl-win-exe" href="#" class="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-colors">
+                  <i data-lucide="file-cog" class="w-3.5 h-3.5 text-sky-400"></i> Standalone .exe
+                </a>
+              </div>
+            </div>
+
+            <!-- Linux 1-Click -->
+            <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 hover:border-slate-700 transition-colors">
+              <div class="flex items-center gap-2">
+                <i data-lucide="terminal" class="w-4 h-4 text-amber-400"></i>
+                <span class="text-xs font-bold text-white">Linux (Ubuntu/Debian/CentOS)</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Shell script download agent binary & pasang systemd background service.</p>
+              <div class="pt-1 flex flex-col gap-1.5">
+                <a id="btn-dl-linux-sh" href="#" class="w-full py-2 px-3 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-sm transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download .sh Installer
+                </a>
+                <a id="btn-dl-linux-bin" href="#" class="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-colors">
+                  <i data-lucide="file-cog" class="w-3.5 h-3.5 text-amber-400"></i> Standalone Binary
+                </a>
+              </div>
+            </div>
+
+            <!-- macOS 1-Click -->
+            <div class="p-3.5 rounded-xl bg-slate-950/60 border border-slate-800 space-y-2 hover:border-slate-700 transition-colors">
+              <div class="flex items-center gap-2">
+                <i data-lucide="apple" class="w-4 h-4 text-slate-300"></i>
+                <span class="text-xs font-bold text-white">macOS (Intel & Apple Silicon)</span>
+              </div>
+              <p class="text-[11px] text-slate-400">Script otomatis pasang LaunchDaemon untuk auto-start saat boot.</p>
+              <div class="pt-1 flex flex-col gap-1.5">
+                <a id="btn-dl-macos-sh" href="#" class="w-full py-2 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 shadow-sm transition-colors">
+                  <i data-lucide="download" class="w-3.5 h-3.5"></i> Download .sh Installer
+                </a>
+                <a id="btn-dl-macos-bin" href="#" class="w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-semibold text-xs inline-flex items-center justify-center gap-1.5 transition-colors">
+                  <i data-lucide="file-cog" class="w-3.5 h-3.5 text-slate-300"></i> Standalone Binary
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Command Tab Section -->
+        <div class="space-y-3 pt-2 border-t border-slate-800/80">
+          <div class="flex items-center justify-between">
+            <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <i data-lucide="terminal" class="w-4 h-4 text-indigo-400"></i> Atau Jalankan 1 Baris Command di Terminal:
+            </h4>
+          </div>
+
+          <div class="border-b border-slate-800 flex gap-2 overflow-x-auto no-scrollbar">
+            <button id="tab-btn-linux" onclick="selectInstallTab('linux')" class="px-4 py-2 text-xs font-semibold border-b-2 border-indigo-500 text-indigo-400 inline-flex items-center gap-2 whitespace-nowrap">
+              <i data-lucide="terminal" class="w-3.5 h-3.5"></i> Linux
+            </button>
+            <button id="tab-btn-windows" onclick="selectInstallTab('windows')" class="px-4 py-2 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 inline-flex items-center gap-2 whitespace-nowrap">
+              <i data-lucide="app-window" class="w-3.5 h-3.5"></i> Windows (PowerShell)
+            </button>
+            <button id="tab-btn-macos" onclick="selectInstallTab('macos')" class="px-4 py-2 text-xs font-semibold border-b-2 border-transparent text-slate-400 hover:text-slate-200 inline-flex items-center gap-2 whitespace-nowrap">
+              <i data-lucide="apple" class="w-3.5 h-3.5"></i> macOS
+            </button>
+          </div>
+
+          <!-- Linux Command -->
+          <div id="tab-content-linux" class="space-y-2">
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+              <code class="text-xs font-mono text-emerald-400 select-all break-all" id="cmd-linux">Memuat perintah...</code>
+              <button onclick="copyCmd('cmd-linux')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition-colors" title="Copy to clipboard">
+                <i data-lucide="copy" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Mengunduh binary agent sesuai arsitektur CPU dan memasang systemd service di /etc/systemd/system/gomesh-agent.service.</p>
+          </div>
+
+          <!-- Windows Command -->
+          <div id="tab-content-windows" class="space-y-2 hidden">
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+              <code class="text-xs font-mono text-sky-400 select-all break-all" id="cmd-windows">Memuat perintah...</code>
+              <button onclick="copyCmd('cmd-windows')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition-colors" title="Copy to clipboard">
+                <i data-lucide="copy" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Buka PowerShell sebagai Administrator lalu paste perintah di atas untuk auto-start agent di Windows.</p>
+          </div>
+
+          <!-- macOS Command -->
+          <div id="tab-content-macos" class="space-y-2 hidden">
+            <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 flex items-center justify-between gap-3">
+              <code class="text-xs font-mono text-indigo-400 select-all break-all" id="cmd-macos">Memuat perintah...</code>
+              <button onclick="copyCmd('cmd-macos')" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 shrink-0 transition-colors" title="Copy to clipboard">
+                <i data-lucide="copy" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-500 italic">• Mendaftarkan LaunchDaemon sistem di /Library/LaunchDaemons/com.gomesh.agent.plist.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AUDIT LOGS MODAL -->
+  <div id="audits-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-2 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-4xl h-[90vh] sm:h-[75vh] flex flex-col overflow-hidden">
+      <div class="px-4 py-3 sm:px-6 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Audit Log Interaksi Remote</h3>
+            <p class="text-[11px] sm:text-xs text-slate-400">Catatan riwayat pembukaan terminal, desktop streaming, dan akses teknisi</p>
+          </div>
+        </div>
+        <button onclick="closeAuditsModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="flex-1 overflow-y-auto p-2 sm:p-4">
+        <table class="w-full text-left text-xs">
+          <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800 font-semibold bg-slate-950/40">
+            <tr>
+              <th class="py-2.5 px-3">Session</th>
+              <th class="py-2.5 px-3">Operator</th>
+              <th class="py-2.5 px-3">Device ID</th>
+              <th class="py-2.5 px-3 hidden sm:table-cell">Started</th>
+              <th class="py-2.5 px-3 hidden md:table-cell">Client IP</th>
+            </tr>
+          </thead>
+          <tbody id="audits-tbody" class="divide-y divide-slate-800/40">
+            <tr>
+              <td colspan="5" class="py-12 text-center text-slate-500">Memuat audit log...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Interactive Terminal Modal -->
+  <div id="terminal-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-0 sm:border border-slate-800 rounded-none sm:rounded-xl shadow-2xl w-full max-w-5xl h-full sm:h-[80vh] flex flex-col overflow-hidden">
+      <!-- Modal Header -->
+      <div class="px-3 sm:px-4 py-2.5 sm:py-3 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="flex gap-1.5 shrink-0">
+            <span class="w-3 h-3 rounded-full bg-rose-500/80 inline-block cursor-pointer" onclick="closeTerminal()"></span>
+            <span class="w-3 h-3 rounded-full bg-amber-500/80 inline-block"></span>
+            <span class="w-3 h-3 rounded-full bg-emerald-500/80 inline-block"></span>
+          </div>
+          <span class="text-xs font-mono font-semibold text-slate-300 ml-1 sm:ml-2 truncate" id="term-title">Terminal: connecting...</span>
+          <span id="term-badge" class="hidden sm:inline-block text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono shrink-0">PTY Active</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button onclick="closeTerminal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Terminal Body Container -->
+      <div id="terminal-container" class="flex-1 bg-[#0f172a] p-2 sm:p-3 overflow-hidden"></div>
+
+      <!-- Modal Footer -->
+      <div class="px-3 sm:px-4 py-2 bg-slate-950 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+        <span class="truncate">Tekan <kbd class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">Ctrl+C</kbd> untuk interupsi</span>
+        <span id="term-dimension" class="shrink-0 ml-2">cols: 80, rows: 24</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Remote File Explorer Modal -->
+  <div id="files-modal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-0 sm:p-4">
+    <div class="bg-slate-900 border-0 sm:border border-slate-800 rounded-none sm:rounded-xl shadow-2xl w-full max-w-5xl h-full sm:h-[82vh] flex flex-col overflow-hidden">
+      <!-- Modal Header -->
+      <div class="px-3 sm:px-5 py-2.5 sm:py-3.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="p-1.5 sm:p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20 shrink-0">
+            <i data-lucide="folder" class="w-4 h-4"></i>
+          </div>
+          <div class="min-w-0">
+            <h3 class="text-xs sm:text-sm font-bold text-white truncate" id="files-modal-title">File Explorer</h3>
+            <p class="text-[10px] sm:text-[11px] text-slate-400 font-mono truncate max-w-[180px] sm:max-w-md" id="files-current-path">/loading...</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+          <button onclick="triggerFileUpload()" class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white inline-flex items-center gap-1.5 shadow-sm transition-all" title="Upload File">
+            <i data-lucide="upload" class="w-3.5 h-3.5"></i> <span class="hidden sm:inline">Upload</span>
+          </button>
+          <button onclick="createNewFolder()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-all" title="New Folder">
+            <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i> <span class="hidden sm:inline">Folder</span>
+          </button>
+          <button onclick="closeFilesModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors ml-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation & Breadcrumb Bar -->
+      <div class="px-3 sm:px-5 py-2 sm:py-2.5 bg-slate-900/90 border-b border-slate-800 flex items-center gap-1.5 sm:gap-2">
+        <button onclick="navigateUp()" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors shrink-0" title="Go to parent directory">
+          <i data-lucide="arrow-up" class="w-4 h-4"></i>
+        </button>
+        <div class="flex-1 flex items-center bg-slate-950 border border-slate-800 rounded-lg px-2.5 sm:px-3 py-1 text-xs font-mono text-slate-300 min-w-0">
+          <input id="path-input" type="text" class="w-full bg-transparent border-none outline-none text-slate-200 font-mono text-base sm:text-xs" onkeydown="if(event.key==='Enter') loadDir(this.value)" />
+        </div>
+        <button onclick="loadDir(document.getElementById('path-input').value)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition-colors shrink-0">
+          Go
+        </button>
+        <button onclick="loadDir(currentLoadedPath)" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors shrink-0" title="Refresh">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>
+
+      <!-- File List Table -->
+      <div class="flex-1 overflow-y-auto p-2">
+        <table class="w-full text-left text-xs">
+          <thead class="text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800/80 font-semibold">
+            <tr>
+              <th class="py-2.5 px-3">Name</th>
+              <th class="py-2.5 px-3">Size</th>
+              <th class="py-2.5 px-3 hidden md:table-cell">Permissions</th>
+              <th class="py-2.5 px-3 hidden sm:table-cell">Modified</th>
+              <th class="py-2.5 px-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="files-tbody" class="divide-y divide-slate-800/40">
+            <tr>
+              <td colspan="5" class="py-12 text-center text-slate-500">
+                <div class="flex flex-col items-center justify-center gap-2">
+                  <i data-lucide="loader-2" class="w-6 h-6 animate-spin text-amber-400"></i>
+                  <p>Memuat daftar file...</p>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Hidden File Input for Uploads -->
+      <input type="file" id="hidden-file-input" class="hidden" onchange="handleFileSelected(event)" />
+
+      <!-- Footer Info -->
+      <div class="px-4 sm:px-5 py-2.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-mono">
+        <span id="files-count-label">0 items</span>
+        <span id="upload-status" class="text-emerald-400"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Remote Desktop Live Stream Modal -->
+  <div id="desktop-modal" class="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md hidden flex flex-col p-0 sm:p-3">
+    <!-- Desktop Header -->
+    <div class="px-3 sm:px-4 py-2 sm:py-2.5 bg-slate-900 border-0 sm:border border-slate-800 rounded-none sm:rounded-t-xl flex items-center justify-between shadow-lg">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+          <i data-lucide="layout" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0">
+          <h3 class="text-xs sm:text-sm font-bold text-white truncate" id="desktop-title">Remote Desktop</h3>
+          <p class="text-[10px] sm:text-[11px] text-slate-400 font-mono truncate" id="desktop-metrics">Connecting stream...</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        <!-- Control Mode Toggle -->
+        <button id="btn-control-mode" onclick="toggleDesktopControl()" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-700 inline-flex items-center gap-1.5 transition-all">
+          <i data-lucide="mouse-pointer" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span id="control-mode-label" class="hidden sm:inline">Control: View Only</span>
+          <span id="control-mode-label-mobile" class="sm:hidden text-[11px]">View</span>
+        </button>
+
+        <!-- Fullscreen Button -->
+        <button onclick="toggleDesktopFullscreen()" class="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors" title="Fullscreen">
+          <i data-lucide="maximize-2" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Close Button -->
+        <button onclick="closeDesktopModal()" class="text-slate-400 hover:text-white p-1.5 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Desktop Canvas Container -->
+    <div id="desktop-container" class="flex-1 bg-slate-950 border-0 sm:border-x sm:border-b border-slate-800 rounded-none sm:rounded-b-xl flex items-center justify-center overflow-hidden relative">
+      <div id="desktop-loading" class="flex flex-col items-center justify-center gap-3 text-slate-400 absolute">
+        <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-emerald-400"></i>
+        <p class="text-sm font-medium">Memulai streaming layar remote...</p>
+      </div>
+      <canvas id="desktop-canvas" class="max-w-full max-h-full object-contain cursor-default outline-none shadow-2xl" tabindex="0"></canvas>
+    </div>
+  </div>
+
+  <!-- 2FA SECURITY SETTINGS MODAL -->
+  <div id="modal-2fa" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-5 sm:px-6 py-3.5 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            <i data-lucide="shield-check" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Keamanan Autentikasi 2FA</h3>
+            <p class="text-[11px] sm:text-xs text-slate-400">Two-Factor Authentication (RFC 6238 TOTP)</p>
+          </div>
+        </div>
+        <button onclick="close2FAModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-4 sm:p-6 space-y-4">
+        <!-- Status Banner -->
+        <div id="2fa-status-banner" class="p-3 rounded-xl border border-slate-800 bg-slate-950/50 flex items-center justify-between">
+          <div class="flex items-center gap-2.5">
+            <div id="2fa-status-icon" class="w-2.5 h-2.5 rounded-full bg-slate-500"></div>
+            <span id="2fa-status-text" class="text-xs font-semibold text-slate-300">Memuat status 2FA...</span>
+          </div>
+          <span id="2fa-status-badge" class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400">CHECKING</span>
+        </div>
+
+        <!-- 2FA Setup Section (shown when 2FA is disabled) -->
+        <div id="2fa-setup-section" class="hidden space-y-4">
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Pindai QR Code menggunakan <strong>Google Authenticator</strong>, <strong>Authy</strong>, atau masukkan Secret Key secara manual:
+          </p>
+          
+          <div class="flex items-center justify-center p-3 bg-white rounded-xl shadow-inner w-48 h-48 sm:w-52 sm:h-52 mx-auto border border-slate-300 relative overflow-hidden">
+            <div id="2fa-qr-loading" class="absolute inset-0 flex flex-col items-center justify-center text-slate-500 bg-white rounded-xl">
+              <i data-lucide="loader-2" class="w-8 h-8 animate-spin text-amber-500"></i>
+              <span class="text-[10px] text-slate-400 mt-2 font-mono">Menyiapkan QR Code...</span>
+            </div>
+            <img id="2fa-qr-img" src="" alt="2FA QR Code" class="w-40 h-40 sm:w-44 sm:h-44 object-contain relative z-10 hidden" onload="document.getElementById('2fa-qr-loading')?.classList.add('hidden'); this.classList.remove('hidden');" />
+          </div>
+
+          <div class="space-y-1">
+            <label class="block text-[11px] font-semibold uppercase tracking-wider text-slate-400">Manual Secret Key:</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="2fa-secret-text" readonly class="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-amber-300 focus:outline-none select-all" />
+              <button type="button" onclick="copy2FASecret()" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs rounded-lg border border-slate-700 font-medium transition-colors flex items-center gap-1.5 shrink-0">
+                <i data-lucide="copy" class="w-3.5 h-3.5"></i> Salin
+              </button>
+            </div>
+          </div>
+
+          <form onsubmit="handleEnable2FA(event)" class="space-y-3 pt-3 border-t border-slate-800">
+            <label class="block text-xs font-semibold text-slate-300">Masukkan 6 Digit Kode dari Authenticator:</label>
+            <div class="flex items-center gap-2">
+              <input type="text" id="2fa-confirm-code" maxlength="6" pattern="[0-9]{6}" inputmode="numeric" placeholder="123456" required class="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-lg text-center tracking-[0.3em] font-mono font-bold text-lg text-amber-400 focus:outline-none focus:border-amber-500" />
+              <button type="submit" id="2fa-enable-btn" class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-amber-600/30 transition-colors whitespace-nowrap">
+                Aktifkan 2FA
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <!-- 2FA Disable Section (shown when 2FA is enabled) -->
+        <div id="2fa-disable-section" class="hidden space-y-4">
+          <div class="p-3.5 bg-emerald-950/20 rounded-xl border border-emerald-500/20 text-xs space-y-1.5">
+            <div class="flex items-center gap-2 text-emerald-400 font-semibold">
+              <i data-lucide="shield-check" class="w-4 h-4"></i> Two-Factor Authentication Sedang Aktif
+            </div>
+            <p class="text-slate-400 text-[11px] leading-relaxed">
+              Akun Anda terlindungi dengan 2FA. Setiap kali login, kode dinamis dari Google Authenticator / Authy wajib dimasukkan.
+            </p>
+          </div>
+
+          <form onsubmit="handleDisable2FA(event)" class="space-y-3 pt-3 border-t border-slate-800">
+            <label class="block text-xs font-semibold text-rose-300">Konfirmasi Kata Sandi untuk Menonaktifkan:</label>
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <input type="password" id="2fa-disable-password" placeholder="Password akun saat ini" required class="flex-1 px-3 py-2.5 bg-slate-950 border border-slate-800 rounded-lg text-base sm:text-xs font-mono text-white focus:outline-none focus:border-rose-500" />
+              <button type="submit" id="2fa-disable-btn" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-rose-600/30 transition-colors whitespace-nowrap">
+                Nonaktifkan 2FA
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHANGE PASSWORD MODAL -->
+  <div id="modal-change-password" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-5 sm:px-6 py-3.5 sm:py-4 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="p-2 rounded-lg bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+            <i data-lucide="key" class="w-5 h-5"></i>
+          </div>
+          <div>
+            <h3 class="text-sm sm:text-base font-bold text-white">Ganti Kata Sandi</h3>
+            <p class="text-[11px] sm:text-xs text-slate-400">Perbarui kata sandi akun administrator</p>
+          </div>
+        </div>
+        <button onclick="closeChangePasswordModal()" class="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <form onsubmit="handleChangePassword(event)" class="p-5 sm:p-6 space-y-4">
+        <div id="change-pwd-error" class="hidden p-3 rounded-lg bg-rose-500/10 border border-rose-500/20 text-rose-400 text-xs flex items-center gap-2">
+          <i data-lucide="alert-circle" class="w-4 h-4 shrink-0"></i>
+          <span id="change-pwd-error-msg"></span>
+        </div>
+
+        <div id="change-pwd-success" class="hidden p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs flex items-center gap-2">
+          <i data-lucide="check-circle-2" class="w-4 h-4 shrink-0"></i>
+          <span id="change-pwd-success-msg">Password berhasil diperbarui!</span>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Kata Sandi Saat Ini</label>
+          <input type="password" id="change-pwd-current" required placeholder="Masukkan kata sandi lama" autocomplete="current-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Kata Sandi Baru</label>
+          <input type="password" id="change-pwd-new" required minlength="6" placeholder="Minimal 6 karakter" autocomplete="new-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Konfirmasi Kata Sandi Baru</label>
+          <input type="password" id="change-pwd-confirm" required minlength="6" placeholder="Ulangi kata sandi baru" autocomplete="new-password" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-2">
+          <button type="button" onclick="closeChangePasswordModal()" class="px-4 py-2 text-xs font-medium text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+            Batal
+          </button>
+          <button type="submit" id="change-pwd-submit-btn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-lg shadow-lg shadow-indigo-600/30 transition-colors flex items-center gap-1.5">
+            <span>Simpan Perubahan</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- CUSTOM CONFIRM MODAL -->
+  <div id="custom-confirm-modal" class="fixed inset-0 z-[9990] bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <div class="p-5 sm:p-6 space-y-4">
+        <div class="flex items-start gap-3.5">
+          <div id="confirm-modal-icon-container" class="p-2.5 rounded-xl bg-rose-500/10 text-rose-400 border border-rose-500/20 shrink-0">
+            <i id="confirm-modal-icon" data-lucide="alert-triangle" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 id="confirm-modal-title" class="text-sm sm:text-base font-bold text-white">Konfirmasi Tindakan</h3>
+            <p id="confirm-modal-message" class="text-xs text-slate-400 mt-1.5 leading-relaxed">Apakah Anda yakin?</p>
+          </div>
+        </div>
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800/80">
+          <button id="confirm-modal-cancel-btn" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition-colors">
+            Batal
+          </button>
+          <button id="confirm-modal-confirm-btn" type="button" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-semibold text-white shadow-lg shadow-rose-600/20 transition-colors">
+            Lanjutkan
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CUSTOM PROMPT MODAL -->
+  <div id="custom-prompt-modal" class="fixed inset-0 z-[9990] bg-slate-950/80 backdrop-blur-sm hidden flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+      <form id="custom-prompt-form" onsubmit="event.preventDefault();" class="p-5 sm:p-6 space-y-4">
+        <div class="flex items-start gap-3.5">
+          <div class="p-2.5 rounded-xl bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shrink-0">
+            <i data-lucide="edit-3" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <h3 id="prompt-modal-title" class="text-sm sm:text-base font-bold text-white">Input Diperlukan</h3>
+            <p id="prompt-modal-message" class="text-xs text-slate-400 mt-1 leading-relaxed">Masukkan nilai:</p>
+          </div>
+        </div>
+
+        <div>
+          <input type="text" id="prompt-modal-input" class="w-full px-3.5 py-2.5 rounded-lg bg-slate-950 border border-slate-800 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-mono" />
+        </div>
+
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-800/80">
+          <button id="prompt-modal-cancel-btn" type="button" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 border border-slate-700 transition-colors">
+            Batal
+          </button>
+          <button id="prompt-modal-submit-btn" type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 transition-colors">
+            Simpan
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODERN TOAST NOTIFICATION CONTAINER -->
+  <div id="toast-container" class="fixed top-3 right-3 left-3 sm:left-auto sm:right-5 z-[9999] flex flex-col gap-2 pointer-events-none max-w-none sm:max-w-sm sm:w-full"></div>
+
+  <!-- MODULAR SCRIPTS -->
+  <script src="/static/js/utils.js"></script>
+  <script src="/static/js/auth.js"></script>
+  <script src="/static/js/terminal.js"></script>
+  <script src="/static/js/desktop.js"></script>
+  <script src="/static/js/filemgr.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

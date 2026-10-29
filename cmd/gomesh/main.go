@@ -24,6 +24,7 @@ import (
 	"gomesh/internal/server/auth"
 	"gomesh/internal/server/hub"
 	"gomesh/internal/server/store"
+	"gomesh/internal/version"
 	"gomesh/scripts"
 	"gomesh/web"
 )
@@ -31,7 +32,13 @@ import (
 func main() {
 	port := flag.Int("port", 8080, "HTTP server listening port")
 	dbPath := flag.String("db", "data/gomesh.db", "Path to SQLite database file")
+	showVersion := flag.Bool("version", false, "Print server version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("GoMesh Central Server %s\n", version.Get())
+		return
+	}
 
 	// Structured text logger
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
@@ -39,7 +46,7 @@ func main() {
 	}))
 	slog.SetDefault(logger)
 
-	slog.Info("starting GoMesh Central Server", "port", *port, "db", *dbPath)
+	slog.Info("starting GoMesh Central Server", "version", version.Get(), "port", *port, "db", *dbPath)
 
 	st, err := store.New(*dbPath)
 	if err != nil {
@@ -105,22 +112,43 @@ func main() {
 func buildServerMux(st *store.Store, sm *auth.SessionManager, h *hub.Hub) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Web console UI
+	// Helper to serve embedded HTML asset
+	serveHTML := func(w http.ResponseWriter, filename string) {
+		data, err := web.Assets.ReadFile(filename)
+		if err != nil {
+			http.Error(w, "Asset not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		content := strings.ReplaceAll(string(data), "{{APP_VERSION}}", version.Get())
+		w.Write([]byte(content))
+	}
+
+	// GET /login: Dedicated login page
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		if sess, ok := sm.GetSessionFromRequest(r); ok && sess != nil {
+			http.Redirect(w, r, "/", http.StatusFound)
+			return
+		}
+		serveHTML(w, "login.html")
+	})
+
+	// GET /: Dedicated dashboard console (Protected by session guard)
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/" {
 			http.NotFound(w, r)
 			return
 		}
-		f, err := web.Assets.Open("index.html")
-		if err != nil {
-			http.Error(w, "Asset not found", http.StatusNotFound)
+		if sess, ok := sm.GetSessionFromRequest(r); !ok || sess == nil {
+			http.Redirect(w, r, "/login", http.StatusFound)
 			return
 		}
-		defer f.Close()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-		io.Copy(w, f)
+		serveHTML(w, "dashboard.html")
 	})
+
+	// GET /static/{path...}: Static CSS and JS assets
+	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.FS(web.StaticFS))))
 
 	// Serves install scripts (embedded with fallback to disk)
 	mux.HandleFunc("GET /scripts/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -243,9 +271,16 @@ func buildServerMux(st *store.Store, sm *auth.SessionManager, h *hub.Hub) *http.
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":  "ok",
-			"version": "0.1.0",
+			"version": version.Get(),
 			"time":    time.Now().Unix(),
 		})
+	})
+
+	// GET /api/version: Returns dynamic version and build info
+	mux.HandleFunc("GET /api/version", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		json.NewEncoder(w).Encode(version.Info())
 	})
 
 	// GET /api/server/network: Discovers local network interfaces for Smart Roaming LAN configuration

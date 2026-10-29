@@ -158,9 +158,9 @@
 
 ## 10. Routing Strategy
 - Web routes:
-  - `/` — Dashboard & daftar device
-  - `/login` — Halaman login
-  - `/devices/{id}` — Detail device & panel remote
+  - `GET /` — Konsol Dashboard monitoring & remote sessions (Session-Guarded, redirect ke `/login` jika unauthenticated)
+  - `GET /login` — Halaman login terdedikasi & verifikasi TOTP 2FA (Redirect ke `/` jika sudah authenticated)
+  - `GET /static/*` — Modul statis terdedikasi (`/static/css/`, `/static/js/`)
 - API routes:
   - `POST /api/auth/login` — Autentikasi credential (username & password)
   - `POST /api/auth/login/2fa` — Verifikasi TOTP 2FA
