@@ -45,6 +45,12 @@ jobs:
           CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="$LDFLAGS" -o dist/gomesh-agent-darwin-amd64 ./cmd/gomesh-agent
           CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="$LDFLAGS" -o dist/gomesh-agent-darwin-arm64 ./cmd/gomesh-agent
 
+          # Provide standard release aliases for 1-click web console downloads
+          cp dist/gomesh-agent-windows-amd64.exe dist/gomesh-agent.exe
+          cp dist/gomesh-agent-linux-amd64 dist/gomesh-agent-linux
+          cp dist/gomesh-agent-darwin-arm64 dist/gomesh-agent
+          cp dist/gomesh-linux-amd64 dist/gomesh-linux
+
           echo "[*] Generating SHA256 Checksums..."
           cd dist
           sha256sum * > checksums.txt

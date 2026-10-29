@@ -127,6 +127,16 @@ fi
 
 chmod +x "$INSTALL_DIR/gomesh"
 
+# 3b. Unduh paket agen untuk Web Console 1-Click Downloads
+mkdir -p "$INSTALL_DIR/bin"
+echo "[*] Menyiapkan paket agen (Windows, Linux, macOS) untuk Web Console..."
+AGENT_BASE_URL="https://github.com/${REPO}/releases/latest/download"
+curl -sSLf "${AGENT_BASE_URL}/gomesh-agent-windows-amd64.exe" -o "$INSTALL_DIR/bin/gomesh-agent.exe" 2>/dev/null || curl -sSLf "${AGENT_BASE_URL}/gomesh-agent.exe" -o "$INSTALL_DIR/bin/gomesh-agent.exe" 2>/dev/null || true
+curl -sSLf "${AGENT_BASE_URL}/gomesh-agent-linux-amd64" -o "$INSTALL_DIR/bin/gomesh-agent-linux" 2>/dev/null || curl -sSLf "${AGENT_BASE_URL}/gomesh-agent-linux" -o "$INSTALL_DIR/bin/gomesh-agent-linux" 2>/dev/null || true
+curl -sSLf "${AGENT_BASE_URL}/gomesh-agent-darwin-arm64" -o "$INSTALL_DIR/bin/gomesh-agent" 2>/dev/null || curl -sSLf "${AGENT_BASE_URL}/gomesh-agent" -o "$INSTALL_DIR/bin/gomesh-agent" 2>/dev/null || true
+[ -f "$INSTALL_DIR/bin/gomesh-agent-linux" ] && chmod +x "$INSTALL_DIR/bin/gomesh-agent-linux"
+[ -f "$INSTALL_DIR/bin/gomesh-agent" ] && chmod +x "$INSTALL_DIR/bin/gomesh-agent"
+
 # 4. Daftarkan Service systemd
 echo "[*] Mengonfigurasi systemd service (/etc/systemd/system/gomesh.service)..."
 cat <<EOF > /etc/systemd/system/gomesh.service

@@ -914,7 +914,7 @@ curl -sSL '%s/scripts/install-macos.sh' | bash -s -- -s '%s' -e '%s' -t '%s' -g 
 	return mux
 }
 
-// findBinaryPath locates an agent binary regardless of whether gomesh is run from repo root or inside bin/
+// findBinaryPath locates an agent binary on local disk, or auto-fetches & caches it from GitHub Releases
 func findBinaryPath(file string) string {
 	candidates := []string{
 		filepath.Join("bin", file),
@@ -936,5 +936,65 @@ func findBinaryPath(file string) string {
 			return p
 		}
 	}
+
+	// Auto-fetch on demand from GitHub Releases if missing on disk
+	return fetchAndCacheBinary(file)
+}
+
+func fetchAndCacheBinary(file string) string {
+	targetDir := "bin"
+	if execPath, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(execPath)
+		targetDir = filepath.Join(execDir, "bin")
+	}
+	_ = os.MkdirAll(targetDir, 0755)
+	destPath := filepath.Join(targetDir, file)
+
+	urls := []string{
+		fmt.Sprintf("https://github.com/didikari/gomesh/releases/latest/download/%s", file),
+	}
+	switch file {
+	case "gomesh-agent.exe":
+		urls = append(urls, "https://github.com/didikari/gomesh/releases/latest/download/gomesh-agent-windows-amd64.exe")
+	case "gomesh-agent-linux":
+		urls = append(urls, "https://github.com/didikari/gomesh/releases/latest/download/gomesh-agent-linux-amd64")
+	case "gomesh-agent-linux-arm64":
+		urls = append(urls, "https://github.com/didikari/gomesh/releases/latest/download/gomesh-agent-linux-arm64")
+	case "gomesh-agent":
+		urls = append(urls, "https://github.com/didikari/gomesh/releases/latest/download/gomesh-agent-darwin-arm64")
+	case "gomesh-agent-mac-amd64":
+		urls = append(urls, "https://github.com/didikari/gomesh/releases/latest/download/gomesh-agent-darwin-amd64")
+	}
+
+	client := &http.Client{Timeout: 90 * time.Second}
+	for _, u := range urls {
+		slog.Info("downloading agent binary from GitHub Releases", "file", file, "url", u)
+		resp, err := client.Get(u)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close()
+			}
+			continue
+		}
+
+		tmpFile := destPath + ".tmp"
+		f, err := os.OpenFile(tmpFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			resp.Body.Close()
+			continue
+		}
+		_, copyErr := io.Copy(f, resp.Body)
+		f.Close()
+		resp.Body.Close()
+
+		if copyErr == nil {
+			if err := os.Rename(tmpFile, destPath); err == nil {
+				slog.Info("successfully cached agent binary", "file", file, "path", destPath)
+				return destPath
+			}
+		}
+		_ = os.Remove(tmpFile)
+	}
+
 	return ""
 }
