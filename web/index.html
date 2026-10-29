@@ -1931,7 +1931,10 @@
       }
     }
 
+    let currentFileEntries = [];
+
     function renderFileList(entries) {
+      currentFileEntries = entries || [];
       const tbody = document.getElementById('files-tbody');
       document.getElementById('files-count-label').innerText = `${entries.length} items`;
 
@@ -1946,28 +1949,28 @@
         return;
       }
 
-      tbody.innerHTML = entries.map(e => {
+      tbody.innerHTML = entries.map((e, idx) => {
         const isDir = e.is_dir;
         const icon = isDir
           ? `<i data-lucide="folder" class="w-4 h-4 text-amber-400 fill-amber-400/20"></i>`
           : `<i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>`;
 
         const nameClick = isDir
-          ? `onclick="loadDir('${escapeQuotes(e.path)}')" class="cursor-pointer text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-2"`
+          ? `onclick="loadDirByIndex(${idx})" class="cursor-pointer text-amber-300 hover:text-amber-200 font-semibold flex items-center gap-2"`
           : `class="text-slate-200 flex items-center gap-2"`;
 
         const downloadBtn = !isDir
-          ? `<button onclick="downloadFile('${escapeQuotes(e.path)}')" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors" title="Download"><i data-lucide="download" class="w-3.5 h-3.5"></i></button>`
+          ? `<button onclick="downloadFileByIndex(${idx})" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-indigo-400 transition-colors" title="Download"><i data-lucide="download" class="w-3.5 h-3.5"></i></button>`
           : '';
 
-        const deleteBtn = `<button onclick="deleteFile('${escapeQuotes(e.path)}')" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`;
+        const deleteBtn = `<button onclick="deleteFileByIndex(${idx})" class="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition-colors" title="Delete"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`;
 
         return `
           <tr class="hover:bg-slate-800/40 transition-colors">
             <td class="py-2.5 px-3">
               <div ${nameClick}>
                 ${icon}
-                <span class="truncate max-w-md">${e.name}</span>
+                <span class="truncate max-w-md">${escapeHtml(e.name)}</span>
               </div>
             </td>
             <td class="py-2.5 px-3 font-mono text-[11px] text-slate-400">${isDir ? '-' : formatBytes(e.size)}</td>
@@ -1986,6 +1989,27 @@
       lucide.createIcons();
     }
 
+    function loadDirByIndex(idx) {
+      const item = currentFileEntries[idx];
+      if (item && item.is_dir) {
+        loadDir(item.path);
+      }
+    }
+
+    function downloadFileByIndex(idx) {
+      const item = currentFileEntries[idx];
+      if (item && !item.is_dir) {
+        downloadFile(item.path);
+      }
+    }
+
+    function deleteFileByIndex(idx) {
+      const item = currentFileEntries[idx];
+      if (item) {
+        deleteFile(item.path);
+      }
+    }
+
     function escapeQuotes(str) {
       return (str || '')
         .replace(/\\/g, '\\\\')
@@ -1995,8 +2019,8 @@
 
     function navigateUp() {
       if (!currentLoadedPath || currentLoadedPath === '/' || currentLoadedPath === '.') return;
-      const normalized = currentLoadedPath.replace(/\\/g, '/').replace(/\/+$/, '');
-      const parts = normalized.split('/');
+      let clean = currentLoadedPath.replace(/\\/g, '/').replace(/\/+$/, '');
+      const parts = clean.split('/');
       parts.pop();
       let parent = parts.join('/');
       if (!parent) parent = '/';

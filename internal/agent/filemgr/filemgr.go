@@ -22,10 +22,18 @@ func List(targetPath string) (string, []protocol.FileEntry, error) {
 		}
 	}
 
+	if len(targetPath) == 2 && targetPath[1] == ':' {
+		targetPath += string(filepath.Separator)
+	}
+
 	targetPath = filepath.Clean(targetPath)
 	absPath, err := filepath.Abs(targetPath)
 	if err != nil {
 		return targetPath, nil, fmt.Errorf("invalid path: %w", err)
+	}
+
+	if len(absPath) == 2 && absPath[1] == ':' {
+		absPath += string(filepath.Separator)
 	}
 
 	entries, err := os.ReadDir(absPath)
