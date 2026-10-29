@@ -152,6 +152,70 @@ Goal: Menghilangkan hardcoded credentials default pada UI login dan menyediakan 
   - Integrasi listener keyboard shortcut (`Escape` close).
 - [x] Unit Testing & Regresi Autentikasi:
   - Menambahkan test suite `TestChangePasswordFlow` untuk memvalidasi proteksi unauthorized, invalid current password, dan keberhasilan rotasi credential.
+- [x] Eliminasi Flash of Unauthenticated Content (FOUC):
+  - Fast pre-render auth state detection di `<head>` via `localStorage` dan CSS root class (`html.has-auth`).
+  - Mencegah layar login berkedip saat dashboard di-reload atau di-refresh oleh pengguna yang telah login.
+
+### Phase 11 — Native Go Modular Multi-Page Web Console Refactor [SELESAI]
+Goal: Merombak file monolitik 2.600+ baris `web/index.html` menjadi arsitektur modular multi-page dengan server-side session guard dan zero reload flicker.
+- [x] Pemisahan Halaman (Multi-Page Server Routing):
+  - `web/login.html`: Halaman autentikasi khusus (login form, TOTP 2FA step, error banner).
+  - `web/dashboard.html`: Halaman dashboard operasional khusus (navbar, stat cards, device table, dialog modals). Bebas dari tag login screen.
+- [x] Server-Side Authentication Guard di Go (`cmd/gomesh/main.go`):
+  - `GET /`: Jika sesi belum ada/tidak valid, otomatis redirect HTTP 302 ke `/login`. Jika sesi valid, menyajikan `dashboard.html`. Menjamin **0% kemungkinan kedipan login screen saat dashboard di-reload**.
+  - `GET /login`: Jika pengguna sudah login, otomatis redirect HTTP 302 ke `/`.
+- [x] Modularisasi Aset Statis (`web/static/`):
+  - `css/app.css`: Custom animations and xterm viewport styling.
+  - `js/utils.js`: Toast notifications, custom confirm & prompt dialogs, formatting helpers (`formatBytes`, `timeAgo`).
+  - `js/auth.js`: Logout, change password modal, and 2FA TOTP setup/disable.
+  - `js/terminal.js`: Interactive terminal lifecycle (xterm.js instance, PTY WebSocket relay, dynamic window resizing).
+  - `js/desktop.js`: Remote desktop streaming (canvas, image decoding, GPU bitmap acceleration, mouse/keyboard input injection).
+  - `js/filemgr.js`: Remote file explorer (safe index-based directory navigation, breadcrumb, chunked upload/download, mkdir, delete).
+  - `js/app.js`: Main dashboard controller, periodic polling, device filtering & grouping, token installer helpers, and global shortcut listeners.
+- [x] Pure Go Embedding:
+  - `web/embed.go` menggunakan `//go:embed *.html static/*` sehingga seluruh halaman dan file statis tetap menyatu dalam single binary executable tanpa dependensi luar.
+- [x] Integration Testing:
+  - Menambahkan test suite `TestMultiPageRoutingAndStaticAssets` untuk memvalidasi proteksi redirect 302 dan penyajian file statis.
+
+### Phase 12 — Mobile & Responsive Cross-Device UI Modernization [SELESAI]
+Goal: Menghadirkan antarmuka pengguna yang sepenuhnya responsif dan intuitif pada berbagai ukuran layar (ponsel pintar/smartphone <640px, tablet 640px–1024px, hingga layar monitor desktop lebar >1024px).
+- [x] Top Navigation Bar Responsiveness (`web/dashboard.html`):
+  - Label teks panjang tombol tindakan ("Download Agent", "Add Device", "Audit Logs") otomatis dikondensasikan menjadi ikon tombol sentuh yang rapi pada layar kecil (`hidden md:inline`, `hidden sm:inline`, `hidden lg:inline`).
+  - Badge versi dan subtitle deskripsi otomatis tersembunyi secara adaptif agar tidak menyebabkan *horizontal overflow*.
+  - Username dan user menu dioptimalkan dengan pemangkasan teks (`truncate`) dan *touch target* minimal 36px–44px.
+- [x] Grid Metrik Adaptif 2x2 pada Mobile:
+  - Grid statistik menggunakan tata letak `grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4`, menghemat ruang vertikal layar smartphone dan meningkatkan densitas informasi tanpa scrolling berlebih.
+- [x] Horizontal Touch Scroll Tabs & Responsif Search:
+  - Tab navigasi filter grup perangkat menggunakan kontainer swipe sentuh horizontal (`overflow-x-auto no-scrollbar whitespace-nowrap`).
+  - Input pencarian perangkat otomatis melebar 100% pada mobile dan mengalir rapi di bawah tab filter.
+  - Ukuran font input disesuaikan menjadi `text-base sm:text-xs` untuk mencegah iOS Safari melakukan auto-zoom saat fokus.
+- [x] Progressive Disclosure Table Kolom Perangkat (`web/dashboard.html` & `web/static/js/app.js`):
+  - Pada layar ponsel kecil, kolom-kolom sekunder seperti Architecture (`hidden lg:table-cell`), Network IP (`hidden md:table-cell`), Telemetry (`hidden sm:table-cell`), dan Last Seen (`hidden xl:table-cell`) disembunyikan secara bersih.
+  - Informasi penting (IP internal dan badge group) ditampilkan secara cerdas di bawah nama Hostname pada tampilan seluler sehingga tidak ada informasi yang hilang.
+  - Tombol aksi remote (Desktop, Files, Shell, Delete) beradaptasi menjadi tombol ikon ergonomis dengan *touch targets* yang nyaman di jari.
+- [x] Dialog & Modal Responsif:
+  - Terminal interaktif dan File Explorer otomatis beralih menjadi tampilan layar penuh (`h-full sm:h-[80vh] rounded-none sm:rounded-xl`) pada smartphone untuk memaksimalkan area kerja teknisi remote.
+  - Modal remote desktop canvas menyesuaikan rasio aspek dan touch container secara fleksibel.
+  - Banner notifikasi toast otomatis melebar proporsional di sisi atas layar ponsel (`fixed top-3 right-3 left-3 sm:left-auto sm:right-5`).
+- [x] Clean CSS Styling:
+  - Menambahkan kelas utilitas `.no-scrollbar` dan penghapusan `-webkit-tap-highlight-color` di `web/static/css/app.css` untuk sentuhan responsif alami pada perangkat seluler.
+
+### Phase 13 — Dynamic Release Versioning & Build Injection [SELESAI]
+Goal: Menghilangkan hardcode versi statis di HTML dan API, menghubungkan nomor rilis aplikasi secara dinamis dari Git tag / GitHub Releases / Go build ldflags ke tampilan web console dan agen.
+- [x] Modul Sentral [`internal/version`](file:///Users/didikariyanto/Projects/Mesh/internal/version/version.go):
+  - Mendeteksi versi secara hierarkis: `-ldflags "-X gomesh/internal/version.Version=vX.Y.Z"` (prioritas utama saat rilis CI/CD) -> `runtime/debug.ReadBuildInfo()` -> `git describe --tags --always` saat development lokal -> fallback version.
+  - Menyediakan helper `version.Get()` dan `version.Info()` untuk server dan agent node.
+- [x] Injeksi Dinamis ke HTML Web Console (`web/dashboard.html` & `web/login.html`):
+  - Fungsi `serveHTML()` pada Go HTTP server secara otomatis menggantikan placeholder `{{APP_VERSION}}` dengan versi aktif saat menyajikan file HTML ke browser tanpa overhead template engine berat.
+  - Navbar dan footer dashboard serta kartu login menampilkan badge versi dinamis yang selalu sinkron dengan rilis resmi.
+- [x] Integrasi Endpoint API:
+  - `GET /api/version`: Mengembalikan metadata versi, hash commit git, dan build timestamp dalam format JSON.
+  - `GET /api/health`: Memperbarui field `"version"` menggunakan `version.Get()`.
+  - Agen node (`gomesh-agent`) otomatis mengirimkan `version.Get()` saat handshake koneksi WebSocket, memastikan tabel database perangkat merekam versi agent yang akurat.
+- [x] GitHub Actions Workflow CI/CD (`.github/workflows/release.yml`):
+  - Memperbarui build flags kompilasi rilis multi-arsitektur dengan `-X gomesh/internal/version.Version=${RELEASE_TAG} -X gomesh/internal/version.GitCommit=${GIT_COMMIT} -X gomesh/internal/version.BuildDate=${BUILD_DATE}` sehingga binary rilis GitHub selalu memiliki tag versi rilis yang tepat secara otomatis.
+- [x] CLI Flag `-version`:
+  - Perintah `./gomesh -version` dan `./gomesh-agent -version` mencetak versi aktif aplikasi ke terminal.
 
 ## 4. Module Priority Table
 | Module | Priority | Why now | Dependencies |
